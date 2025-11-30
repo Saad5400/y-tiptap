@@ -145,10 +145,10 @@
    * True iff condition holds on some element in the Array.
    *
    * @function
-   * @template S
-   * @template {ArrayLike<S>} ARR
+   * @template {ArrayLike<any>} ARR
+   *
    * @param {ARR} arr
-   * @param {function(S, number, ARR):boolean} f
+   * @param {ARR extends ArrayLike<infer S> ? ((value:S, index:number, arr:ARR) => boolean) : never} f
    * @return {boolean}
    */
   const some = (arr, f) => {
@@ -383,10 +383,10 @@
   const size = obj => keys$1(obj).length;
 
   /**
-   * @param {Object|undefined} obj
+   * @param {Object|null|undefined} obj
    */
   const isEmpty = obj => {
-    // eslint-disable-next-line
+    // eslint-disable-next-line no-unreachable-loop
     for (const _k in obj) {
       return false
     }
@@ -394,8 +394,9 @@
   };
 
   /**
-   * @param {Object<string,any>} obj
-   * @param {function(any,string):boolean} f
+   * @template {{ [key:string|number|symbol]: any }} T
+   * @param {T} obj
+   * @param {(v:T[keyof T],k:keyof T)=>boolean} f
    * @return {boolean}
    */
   const every = (obj, f) => {
@@ -411,7 +412,7 @@
    * Calls `Object.prototype.hasOwnProperty`.
    *
    * @param {any} obj
-   * @param {string|symbol} key
+   * @param {string|number|symbol} key
    * @return {boolean}
    */
   const hasProperty = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
@@ -422,6 +423,36 @@
    * @return {boolean}
    */
   const equalFlat = (a, b) => a === b || (size(a) === size(b) && every(a, (val, key) => (val !== undefined || hasProperty(b, key)) && b[key] === val));
+
+  /**
+   * Make an object immutable. This hurts performance and is usually not needed if you perform good
+   * coding practices.
+   */
+  const freeze = Object.freeze;
+
+  /**
+   * Make an object and all its children immutable.
+   * This *really* hurts performance and is usually not needed if you perform good coding practices.
+   *
+   * @template {any} T
+   * @param {T} o
+   * @return {Readonly<T>}
+   */
+  const deepFreeze = (o) => {
+    for (const key in o) {
+      const c = o[key];
+      if (typeof c === 'object' || typeof c === 'function') {
+        deepFreeze(o[key]);
+      }
+    }
+    return freeze(o)
+  };
+
+  const EqualityTraitSymbol = Symbol('Equality');
+
+  /**
+   * @typedef {{ [EqualityTraitSymbol]:(other:EqualityTrait)=>boolean }} EqualityTrait
+   */
 
   /**
    * Common functions and function call helpers.
@@ -751,66 +782,6 @@
    */
   const stringify = JSON.stringify;
 
-  /* global requestIdleCallback, requestAnimationFrame, cancelIdleCallback, cancelAnimationFrame */
-
-  /**
-   * Utility module to work with EcmaScript's event loop.
-   *
-   * @module eventloop
-   */
-
-  /**
-   * @type {Array<function>}
-   */
-  let queue = [];
-
-  const _runQueue = () => {
-    for (let i = 0; i < queue.length; i++) {
-      queue[i]();
-    }
-    queue = [];
-  };
-
-  /**
-   * @param {function():void} f
-   */
-  const enqueue = f => {
-    queue.push(f);
-    if (queue.length === 1) {
-      setTimeout(_runQueue, 0);
-    }
-  };
-
-  /**
-   * @typedef {Object} TimeoutObject
-   * @property {function} TimeoutObject.destroy
-   */
-
-  /**
-   * @param {function(number):void} clearFunction
-   */
-  const createTimeoutClass = clearFunction => class TT {
-    /**
-     * @param {number} timeoutId
-     */
-    constructor (timeoutId) {
-      this._ = timeoutId;
-    }
-
-    destroy () {
-      clearFunction(this._);
-    }
-  };
-
-  const Timeout = createTimeoutClass(clearTimeout);
-
-  /**
-   * @param {number} timeout
-   * @param {function} callback
-   * @return {TimeoutObject}
-   */
-  const timeout = (timeout, callback) => new Timeout(setTimeout(callback, timeout));
-
   /**
    * Common Math expressions.
    *
@@ -859,19 +830,6 @@
    * @return {boolean} Wether n is negative. This function also differentiates between -0 and +0
    */
   const isNegativeZero = n => n !== 0 ? n < 0 : 1 / n < 0;
-
-  /**
-   * Utility module to work with EcmaScript Symbols.
-   *
-   * @module symbol
-   */
-
-  /**
-   * Return fresh symbol.
-   *
-   * @return {Symbol}
-   */
-  const create$3 = Symbol;
 
   /**
    * Utility module to convert metric values.
@@ -945,6 +903,77 @@
     }
     return minutes + 'min' + (seconds > 0 ? ' ' + seconds + 's' : '')
   };
+
+  /* global requestIdleCallback, requestAnimationFrame, cancelIdleCallback, cancelAnimationFrame */
+
+  /**
+   * Utility module to work with EcmaScript's event loop.
+   *
+   * @module eventloop
+   */
+
+  /**
+   * @type {Array<function>}
+   */
+  let queue = [];
+
+  const _runQueue = () => {
+    for (let i = 0; i < queue.length; i++) {
+      queue[i]();
+    }
+    queue = [];
+  };
+
+  /**
+   * @param {function():void} f
+   */
+  const enqueue = f => {
+    queue.push(f);
+    if (queue.length === 1) {
+      setTimeout(_runQueue, 0);
+    }
+  };
+
+  /**
+   * @typedef {Object} TimeoutObject
+   * @property {function} TimeoutObject.destroy
+   */
+
+  /**
+   * @param {function(number):void} clearFunction
+   */
+  const createTimeoutClass = clearFunction => class TT {
+    /**
+     * @param {number} timeoutId
+     */
+    constructor (timeoutId) {
+      this._ = timeoutId;
+    }
+
+    destroy () {
+      clearFunction(this._);
+    }
+  };
+
+  const Timeout = createTimeoutClass(clearTimeout);
+
+  /**
+   * @param {number} timeout
+   * @param {function} callback
+   * @return {TimeoutObject}
+   */
+  const timeout = (timeout, callback) => new Timeout(setTimeout(callback, timeout));
+
+  /**
+   * Utility module to work with EcmaScript Symbols.
+   *
+   * @module symbol
+   */
+
+  /**
+   * Return fresh symbol.
+   */
+  const create$3 = Symbol;
 
   const BOLD = create$3();
   const UNBOLD = create$3();
@@ -1363,14 +1392,12 @@
    * a === b // values match
    * ```
    *
+   * @template {string} T
    * @typedef {Object} SimpleDiff
    * @property {Number} index The index where changes were applied
    * @property {Number} remove The number of characters to delete starting
    *                                  at `index`.
    * @property {T} insert The new text to insert at `index` after applying
-   *                           `delete`
-   *
-   * @template T
    */
 
   const highSurrogateRegex = /[\uD800-\uDBFF]/;
@@ -2997,7 +3024,7 @@
    *  * runTests automatically tests all exported functions that start with "test".
    *  * The name of the function should be in camelCase and is used for the logging output.
    *  *
-   *  * @param {t.TestCase} tc
+   *  * @ param {t.TestCase} tc
    *  *\/
    * export const testMyFirstTest = tc => {
    *   t.compare({ a: 4 }, { a: 4 }, 'objects are equal')
@@ -3008,7 +3035,6 @@
    *
    * @module testing
    */
-
   hasConf('extensive');
 
   /* c8 ignore next */
@@ -3237,6 +3263,13 @@
     // we don't use assert here because we want to test all branches (istanbul errors if one branch is not tested)
     if (a == null || b == null) {
       return compareValues(null, a, b, path)
+    }
+    if (a[EqualityTraitSymbol] != null) {
+      if (a[EqualityTraitSymbol](b)) {
+        return true
+      } else {
+        _failMessage(message, 'Not equal by equality trait', path);
+      }
     }
     if (a.constructor !== b.constructor) {
       _failMessage(message, 'Constructors don\'t match', path);
@@ -3587,9 +3620,12 @@
   const iterateDeletedStructs = (transaction, ds, f) =>
     ds.clients.forEach((deletes, clientid) => {
       const structs = /** @type {Array<GC|Item>} */ (transaction.doc.store.clients.get(clientid));
-      for (let i = 0; i < deletes.length; i++) {
-        const del = deletes[i];
-        iterateStructs(transaction, structs, del.clock, del.len, f);
+      if (structs != null) {
+        const lastStruct = structs[structs.length - 1];
+        const clockState = lastStruct.id.clock + lastStruct.length;
+        for (let i = 0, del = deletes[i]; i < deletes.length && del.clock < clockState; del = deletes[++i]) {
+          iterateStructs(transaction, structs, del.clock, del.len, f);
+        }
       }
     });
 
@@ -3966,8 +4002,9 @@
        * lost (with false as a parameter).
        */
       this.isSynced = false;
+      this.isDestroyed = false;
       /**
-       * Promise that resolves once the document has been loaded from a presistence provider.
+       * Promise that resolves once the document has been loaded from a persistence provider.
        */
       this.whenLoaded = create(resolve => {
         this.on('load', () => {
@@ -4184,6 +4221,7 @@
      * Emit `destroy` event and unregister all event handlers.
      */
     destroy () {
+      this.isDestroyed = true;
       from(this.subdocs).forEach(subdoc => subdoc.destroy());
       const item = this._item;
       if (item !== null) {
@@ -4644,7 +4682,7 @@
        */
       this.keyMap = new Map();
       /**
-       * Refers to the next uniqe key-identifier to me used.
+       * Refers to the next unique key-identifier to me used.
        * See writeKey method for more information.
        *
        * @type {number}
@@ -4921,7 +4959,7 @@
             // @type {string|null}
             const struct = new Item(
               createID(client, clock),
-              null, // leftd
+              null, // left
               (info & BIT8) === BIT8 ? decoder.readLeftID() : null, // origin
               null, // right
               (info & BIT7) === BIT7 ? decoder.readRightID() : null, // right origin
@@ -4945,7 +4983,7 @@
 
             const struct = new Item(
               createID(client, clock),
-              null, // leftd
+              null, // left
               origin, // origin
               null, // right
               rightOrigin, // right origin
@@ -4978,7 +5016,7 @@
    * then we start emptying the stack.
    *
    * It is not possible to have circles: i.e. struct1 (from client1) depends on struct2 (from client2)
-   * depends on struct3 (from client1). Therefore the max stack size is eqaul to `structReaders.length`.
+   * depends on struct3 (from client1). Therefore the max stack size is equal to `structReaders.length`.
    *
    * This method is implemented in a way so that we can resume computation if this update
    * causally depends on another update.
@@ -5046,14 +5084,14 @@
     const addStackToRestSS = () => {
       for (const item of stack) {
         const client = item.id.client;
-        const unapplicableItems = clientsStructRefs.get(client);
-        if (unapplicableItems) {
+        const inapplicableItems = clientsStructRefs.get(client);
+        if (inapplicableItems) {
           // decrement because we weren't able to apply previous operation
-          unapplicableItems.i--;
-          restStructs.clients.set(client, unapplicableItems.refs.slice(unapplicableItems.i));
+          inapplicableItems.i--;
+          restStructs.clients.set(client, inapplicableItems.refs.slice(inapplicableItems.i));
           clientsStructRefs.delete(client);
-          unapplicableItems.i = 0;
-          unapplicableItems.refs = [];
+          inapplicableItems.i = 0;
+          inapplicableItems.refs = [];
         } else {
           // item was the last item on clientsStructRefs and the field was already cleared. Add item to restStructs and continue
           restStructs.clients.set(client, [item]);
@@ -5137,7 +5175,7 @@
   /**
    * Read and apply a document update.
    *
-   * This function has the same effect as `applyUpdate` but accepts an decoder.
+   * This function has the same effect as `applyUpdate` but accepts a decoder.
    *
    * @param {decoding.Decoder} decoder
    * @param {Doc} ydoc
@@ -5218,7 +5256,7 @@
   /**
    * Read and apply a document update.
    *
-   * This function has the same effect as `applyUpdate` but accepts an decoder.
+   * This function has the same effect as `applyUpdate` but accepts a decoder.
    *
    * @param {decoding.Decoder} decoder
    * @param {Doc} ydoc
@@ -5657,7 +5695,7 @@
           initUser(storeType.get(userDescription), userDescription)
         );
       });
-      // add intial data
+      // add initial data
       storeType.forEach(initUser);
     }
 
@@ -5785,7 +5823,7 @@
        * after the meant position.
        * I.e. position 1 in 'ab' is associated to character 'b'.
        *
-       * If assoc < 0, then the relative position is associated to the caharacter
+       * If assoc < 0, then the relative position is associated to the character
        * before the meant position.
        *
        * @type {number}
@@ -5821,7 +5859,7 @@
    *
    * @function
    */
-  const createRelativePositionFromJSON = json => new RelativePosition(json.type == null ? null : createID(json.type.client, json.type.clock), json.tname || null, json.item == null ? null : createID(json.item.client, json.item.clock), json.assoc == null ? 0 : json.assoc);
+  const createRelativePositionFromJSON = json => new RelativePosition(json.type == null ? null : createID(json.type.client, json.type.clock), json.tname ?? null, json.item == null ? null : createID(json.item.client, json.item.clock), json.assoc == null ? 0 : json.assoc);
 
   class AbsolutePosition {
     /**
@@ -5976,6 +6014,18 @@
   const decodeRelativePosition = uint8Array => readRelativePosition(createDecoder(uint8Array));
 
   /**
+   * @param {StructStore} store
+   * @param {ID} id
+   */
+  const getItemWithOffset = (store, id) => {
+    const item = getItem(store, id);
+    const diff = id.clock - item.id.clock;
+    return {
+      item, diff
+    }
+  };
+
+  /**
    * Transform a relative position to an absolute position.
    *
    * If you want to share the relative position with other users, you should set
@@ -6005,7 +6055,7 @@
       if (getState(store, rightID.client) <= rightID.clock) {
         return null
       }
-      const res = followUndoneDeletions ? followRedone(store, rightID) : { item: getItem(store, rightID), diff: 0 };
+      const res = followUndoneDeletions ? followRedone(store, rightID) : getItemWithOffset(store, rightID);
       const right = res.item;
       if (!(right instanceof Item)) {
         return null
@@ -6696,7 +6746,7 @@
    */
   const tryMergeDeleteSet = (ds, store) => {
     // try to merge deleted / gc'd items
-    // merge from right to left for better efficiecy and so we don't miss any merge targets
+    // merge from right to left for better efficiency and so we don't miss any merge targets
     ds.clients.forEach((deleteItems, client) => {
       const structs = /** @type {Array<GC|Item>} */ (store.clients.get(client));
       for (let di = deleteItems.length - 1; di >= 0; di--) {
@@ -6935,7 +6985,7 @@
    */
   const clearUndoManagerStackItem = (tr, um, stackItem) => {
     iterateDeletedStructs(tr, stackItem.deletions, item => {
-      if (item instanceof Item && um.scope.some(type => isParentOf(type, item))) {
+      if (item instanceof Item && um.scope.some(type => type === tr.doc || isParentOf(/** @type {AbstractType<any>} */ (type), item))) {
         keepItem(item, false);
       }
     });
@@ -6977,7 +7027,7 @@
               }
               struct = item;
             }
-            if (!struct.deleted && scope.some(type => isParentOf(type, /** @type {Item} */ (struct)))) {
+            if (!struct.deleted && scope.some(type => type === transaction.doc || isParentOf(/** @type {AbstractType<any>} */ (type), /** @type {Item} */ (struct)))) {
               itemsToDelete.push(struct);
             }
           }
@@ -6985,7 +7035,7 @@
         iterateDeletedStructs(transaction, stackItem.deletions, struct => {
           if (
             struct instanceof Item &&
-            scope.some(type => isParentOf(type, struct)) &&
+            scope.some(type => type === transaction.doc || isParentOf(/** @type {AbstractType<any>} */ (type), struct)) &&
             // Never redo structs in stackItem.insertions because they were created and deleted in the same capture interval.
             !isDeleted(stackItem.insertions, struct.id)
           ) {
@@ -7014,12 +7064,13 @@
       });
       _tr = transaction;
     }, undoManager);
-    if (undoManager.currStackItem != null) {
+    const res = undoManager.currStackItem;
+    if (res != null) {
       const changedParentTypes = _tr.changedParentTypes;
-      undoManager.emit('stack-item-popped', [{ stackItem: undoManager.currStackItem, type: eventType, changedParentTypes, origin: undoManager }, undoManager]);
+      undoManager.emit('stack-item-popped', [{ stackItem: res, type: eventType, changedParentTypes, origin: undoManager }, undoManager]);
       undoManager.currStackItem = null;
     }
-    return undoManager.currStackItem
+    return res
   };
 
   /**
@@ -7054,7 +7105,7 @@
    */
   class UndoManager extends ObservableV2 {
     /**
-     * @param {AbstractType<any>|Array<AbstractType<any>>} typeScope Accepts either a single type, or an array of types
+     * @param {Doc|AbstractType<any>|Array<AbstractType<any>>} typeScope Limits the scope of the UndoManager. If this is set to a ydoc instance, all changes on that ydoc will be undone. If set to a specific type, only changes on that type or its children will be undone. Also accepts an array of types.
      * @param {UndoManagerOptions} options
      */
     constructor (typeScope, {
@@ -7063,11 +7114,11 @@
       deleteFilter = () => true,
       trackedOrigins = new Set([null]),
       ignoreRemoteMapChanges = false,
-      doc = /** @type {Doc} */ (isArray(typeScope) ? typeScope[0].doc : typeScope.doc)
+      doc = /** @type {Doc} */ (isArray(typeScope) ? typeScope[0].doc : typeScope instanceof Doc ? typeScope : typeScope.doc)
     } = {}) {
       super();
       /**
-       * @type {Array<AbstractType<any>>}
+       * @type {Array<AbstractType<any> | Doc>}
        */
       this.scope = [];
       this.doc = doc;
@@ -7107,7 +7158,7 @@
         // Only track certain transactions
         if (
           !this.captureTransaction(transaction) ||
-          !this.scope.some(type => transaction.changedParentTypes.has(type)) ||
+          !this.scope.some(type => transaction.changedParentTypes.has(/** @type {AbstractType<any>} */ (type)) || type === this.doc) ||
           (!this.trackedOrigins.has(transaction.origin) && (!transaction.origin || !this.trackedOrigins.has(transaction.origin.constructor)))
         ) {
           return
@@ -7146,7 +7197,7 @@
         }
         // make sure that deleted structs are not gc'd
         iterateDeletedStructs(transaction, transaction.deleteSet, /** @param {Item|GC} item */ item => {
-          if (item instanceof Item && this.scope.some(type => isParentOf(type, item))) {
+          if (item instanceof Item && this.scope.some(type => type === transaction.doc || isParentOf(/** @type {AbstractType<any>} */ (type), item))) {
             keepItem(item, true);
           }
         });
@@ -7167,13 +7218,17 @@
     }
 
     /**
-     * @param {Array<AbstractType<any>> | AbstractType<any>} ytypes
+     * Extend the scope.
+     *
+     * @param {Array<AbstractType<any> | Doc> | AbstractType<any> | Doc} ytypes
      */
     addToScope (ytypes) {
+      const tmpSet = new Set(this.scope);
       ytypes = isArray(ytypes) ? ytypes : [ytypes];
       ytypes.forEach(ytype => {
-        if (this.scope.every(yt => yt !== ytype)) {
-          if (ytype.doc !== this.doc) warn('[yjs#509] Not same Y.Doc'); // use MultiDocUndoManager instead. also see https://github.com/yjs/yjs/issues/509
+        if (!tmpSet.has(ytype)) {
+          tmpSet.add(ytype);
+          if (ytype instanceof AbstractType ? ytype.doc !== this.doc : ytype !== this.doc) warn('[yjs#509] Not same Y.Doc'); // use MultiDocUndoManager instead. also see https://github.com/yjs/yjs/issues/509
           this.scope.push(ytype);
         }
       });
@@ -8231,8 +8286,8 @@
         let i = 0;
         let c = /** @type {AbstractType<any>} */ (child._item.parent)._start;
         while (c !== child._item && c !== null) {
-          if (!c.deleted) {
-            i++;
+          if (!c.deleted && c.countable) {
+            i += c.length;
           }
           c = c.right;
         }
@@ -8242,6 +8297,11 @@
     }
     return path
   };
+
+  /**
+   * https://docs.yjs.dev/getting-started/working-with-shared-types#caveats
+   */
+  const warnPrematureAccess = () => { warn('Invalid access: Add Yjs type to a document before reading data.'); };
 
   const maxSearchMarker = 80;
 
@@ -8374,11 +8434,11 @@
     //   }
     // }
     // if (marker) {
-    //   if (window.lengthes == null) {
-    //     window.lengthes = []
-    //     window.getLengthes = () => window.lengthes.sort((a, b) => a - b)
+    //   if (window.lengths == null) {
+    //     window.lengths = []
+    //     window.getLengths = () => window.lengths.sort((a, b) => a - b)
     //   }
-    //   window.lengthes.push(marker.index - pindex)
+    //   window.lengths.push(marker.index - pindex)
     //   console.log('distance', marker.index - pindex, 'len', p && p.parent.length)
     // }
     if (marker !== null && abs(marker.index - pindex) < /** @type {YText|YArray<any>} */ (p.parent).length / maxSearchMarker) {
@@ -8440,6 +8500,7 @@
    * @return {Array<Item>}
    */
   const getTypeChildren = t => {
+    t.doc ?? warnPrematureAccess();
     let s = t._start;
     const arr = [];
     while (s) {
@@ -8633,6 +8694,7 @@
    * @function
    */
   const typeListSlice = (type, start, end) => {
+    type.doc ?? warnPrematureAccess();
     if (start < 0) {
       start = type._length + start;
     }
@@ -8668,6 +8730,7 @@
    * @function
    */
   const typeListToArray = type => {
+    type.doc ?? warnPrematureAccess();
     const cs = [];
     let n = type._start;
     while (n !== null) {
@@ -8717,6 +8780,7 @@
   const typeListForEach = (type, f) => {
     let index = 0;
     let n = type._start;
+    type.doc ?? warnPrematureAccess();
     while (n !== null) {
       if (n.countable && !n.deleted) {
         const c = n.content.getContent();
@@ -8806,6 +8870,7 @@
    * @function
    */
   const typeListGet = (type, index) => {
+    type.doc ?? warnPrematureAccess();
     const marker = findMarker(type, index);
     let n = type._start;
     if (marker !== null) {
@@ -8940,7 +9005,7 @@
 
   /**
    * Pushing content is special as we generally want to push after the last item. So we don't have to update
-   * the serach marker.
+   * the search marker.
    *
    * @param {Transaction} transaction
    * @param {AbstractType<any>} parent
@@ -9046,6 +9111,8 @@
         case Boolean:
         case Array:
         case String:
+        case Date:
+        case BigInt:
           content = new ContentAny([value]);
           break
         case Uint8Array:
@@ -9074,6 +9141,7 @@
    * @function
    */
   const typeMapGet = (parent, key) => {
+    parent.doc ?? warnPrematureAccess();
     const val = parent._map.get(key);
     return val !== undefined && !val.deleted ? val.content.getContent()[val.length - 1] : undefined
   };
@@ -9090,6 +9158,7 @@
      * @type {Object<string,any>}
      */
     const res = {};
+    parent.doc ?? warnPrematureAccess();
     parent._map.forEach((value, key) => {
       if (!value.deleted) {
         res[key] = value.content.getContent()[value.length - 1];
@@ -9107,6 +9176,7 @@
    * @function
    */
   const typeMapHas = (parent, key) => {
+    parent.doc ?? warnPrematureAccess();
     const val = parent._map.get(key);
     return val !== undefined && !val.deleted
   };
@@ -9157,13 +9227,16 @@
   };
 
   /**
-   * @param {Map<string,Item>} map
+   * @param {AbstractType<any> & { _map: Map<string, Item> }} type
    * @return {IterableIterator<Array<any>>}
    *
    * @private
    * @function
    */
-  const createMapIterator = map => iteratorFilter(map.entries(), /** @param {any} entry */ entry => !entry[1].deleted);
+  const createMapIterator = type => {
+    type.doc ?? warnPrematureAccess();
+    return iteratorFilter(type._map.entries(), /** @param {any} entry */ entry => !entry[1].deleted)
+  };
 
   /**
    * @module YArray
@@ -9175,16 +9248,7 @@
    * @template T
    * @extends YEvent<YArray<T>>
    */
-  class YArrayEvent extends YEvent {
-    /**
-     * @param {YArray<T>} yarray The changed type
-     * @param {Transaction} transaction The transaction object
-     */
-    constructor (yarray, transaction) {
-      super(yarray, transaction);
-      this._transaction = transaction;
-    }
-  }
+  class YArrayEvent extends YEvent {}
 
   /**
    * A shared Array implementation.
@@ -9263,7 +9327,8 @@
     }
 
     get length () {
-      return this._prelimContent === null ? this._length : this._prelimContent.length
+      this.doc ?? warnPrematureAccess();
+      return this._length
     }
 
     /**
@@ -9321,9 +9386,9 @@
     }
 
     /**
-     * Preppends content to this YArray.
+     * Prepends content to this YArray.
      *
-     * @param {Array<T>} content Array of content to preppend.
+     * @param {Array<T>} content Array of content to prepend.
      */
     unshift (content) {
       this.insert(0, content);
@@ -9365,7 +9430,8 @@
     }
 
     /**
-     * Transforms this YArray to a JavaScript Array.
+     * Returns a portion of this YArray into a JavaScript Array selected
+     * from start to end (end not included).
      *
      * @param {number} [start]
      * @param {number} [end]
@@ -9537,6 +9603,7 @@
      * @return {Object<string,any>}
      */
     toJSON () {
+      this.doc ?? warnPrematureAccess();
       /**
        * @type {Object<string,MapType>}
        */
@@ -9556,7 +9623,7 @@
      * @return {number}
      */
     get size () {
-      return [...createMapIterator(this._map)].length
+      return [...createMapIterator(this)].length
     }
 
     /**
@@ -9565,7 +9632,7 @@
      * @return {IterableIterator<string>}
      */
     keys () {
-      return iteratorMap(createMapIterator(this._map), /** @param {any} v */ v => v[0])
+      return iteratorMap(createMapIterator(this), /** @param {any} v */ v => v[0])
     }
 
     /**
@@ -9574,7 +9641,7 @@
      * @return {IterableIterator<MapType>}
      */
     values () {
-      return iteratorMap(createMapIterator(this._map), /** @param {any} v */ v => v[1].content.getContent()[v[1].length - 1])
+      return iteratorMap(createMapIterator(this), /** @param {any} v */ v => v[1].content.getContent()[v[1].length - 1])
     }
 
     /**
@@ -9583,7 +9650,7 @@
      * @return {IterableIterator<[string, MapType]>}
      */
     entries () {
-      return iteratorMap(createMapIterator(this._map), /** @param {any} v */ v => /** @type {any} */ ([v[0], v[1].content.getContent()[v[1].length - 1]]))
+      return iteratorMap(createMapIterator(this), /** @param {any} v */ v => /** @type {any} */ ([v[0], v[1].content.getContent()[v[1].length - 1]]))
     }
 
     /**
@@ -9592,6 +9659,7 @@
      * @param {function(MapType,string,YMap<MapType>):void} f A function to execute on every element of this YArray.
      */
     forEach (f) {
+      this.doc ?? warnPrematureAccess();
       this._map.forEach((item, key) => {
         if (!item.deleted) {
           f(item.content.getContent()[item.length - 1], key, this);
@@ -10140,7 +10208,7 @@
   };
 
   /**
-   * This will be called by the transction once the event handlers are called to potentially cleanup
+   * This will be called by the transaction once the event handlers are called to potentially cleanup
    * formatting attributes.
    *
    * @param {Transaction} transaction
@@ -10230,7 +10298,7 @@
 
   /**
    * The Quill Delta format represents changes on a text document with
-   * formatting information. For mor information visit {@link https://quilljs.com/docs/delta/|Quill Delta}
+   * formatting information. For more information visit {@link https://quilljs.com/docs/delta/|Quill Delta}
    *
    * @example
    *   {
@@ -10538,6 +10606,7 @@
      * @type {number}
      */
     get length () {
+      this.doc ?? warnPrematureAccess();
       return this._length
     }
 
@@ -10594,6 +10663,7 @@
      * @public
      */
     toString () {
+      this.doc ?? warnPrematureAccess();
       let str = '';
       /**
        * @type {Item|null}
@@ -10621,7 +10691,7 @@
     /**
      * Apply a {@link Delta} on this shared YText type.
      *
-     * @param {any} delta The changes to apply on this element.
+     * @param {Array<any>} delta The changes to apply on this element.
      * @param {object}  opts
      * @param {boolean} [opts.sanitize] Sanitize input delta. Removes ending newlines if set to true.
      *
@@ -10667,6 +10737,7 @@
      * @public
      */
     toDelta (snapshot, prevSnapshot, computeYChange) {
+      this.doc ?? warnPrematureAccess();
       /**
        * @type{Array<any>}
        */
@@ -11004,6 +11075,7 @@
        */
       this._currentNode = /** @type {Item} */ (root._start);
       this._firstCall = true;
+      root.doc ?? warnPrematureAccess();
     }
 
     [Symbol.iterator] () {
@@ -11032,8 +11104,12 @@
           } else {
             // walk right or up in the tree
             while (n !== null) {
-              if (n.right !== null) {
-                n = n.right;
+              /**
+               * @type {Item | null}
+               */
+              const nxt = n.next;
+              if (nxt !== null) {
+                n = nxt;
                 break
               } else if (n.parent === this._root) {
                 n = null;
@@ -11115,6 +11191,7 @@
     }
 
     get length () {
+      this.doc ?? warnPrematureAccess();
       return this._prelimContent === null ? this._length : this._prelimContent.length
     }
 
@@ -11318,9 +11395,9 @@
     }
 
     /**
-     * Preppends content to this YArray.
+     * Prepends content to this YArray.
      *
-     * @param {Array<YXmlElement|YXmlText>} content Array of content to preppend.
+     * @param {Array<YXmlElement|YXmlText>} content Array of content to prepend.
      */
     unshift (content) {
       this.insert(0, content);
@@ -11337,7 +11414,8 @@
     }
 
     /**
-     * Transforms this YArray to a JavaScript Array.
+     * Returns a portion of this YXmlFragment into a JavaScript Array selected
+     * from start to end (end not included).
      *
      * @param {number} [start]
      * @param {number} [end]
@@ -11634,7 +11712,7 @@
      * @param {YXmlElement|YXmlText|YXmlFragment} target The target on which the event is created.
      * @param {Set<string|null>} subs The set of changed attributes. `null` is included if the
      *                   child list changed.
-     * @param {Transaction} transaction The transaction instance with wich the
+     * @param {Transaction} transaction The transaction instance with which the
      *                                  change was created.
      */
     constructor (target, subs, transaction) {
@@ -11894,7 +11972,7 @@
      * This method is already assuming that `this.id.clock + this.length === this.id.clock`.
      * Also this method does *not* remove right from StructStore!
      * @param {AbstractStruct} right
-     * @return {boolean} wether this merged with right
+     * @return {boolean} whether this merged with right
      */
     mergeWith (right) {
       return false
@@ -12597,6 +12675,8 @@
     return new ContentJSON(cs)
   };
 
+  const isDevMode = getVariable('node_env') === 'development';
+
   class ContentAny {
     /**
      * @param {Array<any>} arr
@@ -12606,6 +12686,7 @@
        * @type {Array<any>}
        */
       this.arr = arr;
+      isDevMode && deepFreeze(arr);
     }
 
     /**
@@ -13334,8 +13415,7 @@
         if (this.left && this.left.constructor === Item) {
           this.parent = this.left.parent;
           this.parentSub = this.left.parentSub;
-        }
-        if (this.right && this.right.constructor === Item) {
+        } else if (this.right && this.right.constructor === Item) {
           this.parent = this.right.parent;
           this.parentSub = this.right.parentSub;
         }
@@ -13823,6 +13903,8 @@
     findIndexSS: findIndexSS,
     findRootTypeKey: findRootTypeKey,
     getItem: getItem,
+    getItemCleanEnd: getItemCleanEnd,
+    getItemCleanStart: getItemCleanStart,
     getState: getState,
     getTypeChildren: getTypeChildren,
     isDeleted: isDeleted,
@@ -13831,6 +13913,7 @@
     logType: logType,
     logUpdate: logUpdate,
     logUpdateV2: logUpdateV2,
+    mergeDeleteSets: mergeDeleteSets,
     mergeUpdates: mergeUpdates,
     mergeUpdatesV2: mergeUpdatesV2,
     obfuscateUpdate: obfuscateUpdate,
@@ -14816,7 +14899,7 @@
       position in this fragment. The result object will be reused
       (overwritten) the next time the function is called. @internal
       */
-      findIndex(pos, round = -1) {
+      findIndex(pos) {
           if (pos == 0)
               return retIndex(0, pos);
           if (pos == this.size)
@@ -14826,7 +14909,7 @@
           for (let i = 0, curPos = 0;; i++) {
               let cur = this.child(i), end = curPos + cur.nodeSize;
               if (end >= pos) {
-                  if (end == pos || round > 0)
+                  if (end == pos)
                       return retIndex(i + 1, end);
                   return retIndex(i, curPos);
               }
@@ -15226,7 +15309,7 @@
               return null;
           return content.cut(0, dist).append(insert).append(content.cut(dist));
       }
-      let inner = insertInto(child.content, dist - offset - 1, insert);
+      let inner = insertInto(child.content, dist - offset - 1, insert, child);
       return inner && content.replaceChild(index, child.copy(inner));
   }
   function replace($from, $to, slice) {
@@ -15789,7 +15872,7 @@
       `blockSeparator` is given, it will be inserted to separate text
       from different block nodes. If `leafText` is given, it'll be
       inserted for every non-text leaf node encountered, otherwise
-      [`leafText`](https://prosemirror.net/docs/ref/#model.NodeSpec^leafText) will be used.
+      [`leafText`](https://prosemirror.net/docs/ref/#model.NodeSpec.leafText) will be used.
       */
       textBetween(from, to, blockSeparator, leafText) {
           return this.content.textBetween(from, to, blockSeparator, leafText);
@@ -16999,8 +17082,8 @@
               let type = this.marks[prop], excl = type.spec.excludes;
               type.excluded = excl == null ? [type] : excl == "" ? [] : gatherMarks(this, excl.split(" "));
           }
-          this.nodeFromJSON = this.nodeFromJSON.bind(this);
-          this.markFromJSON = this.markFromJSON.bind(this);
+          this.nodeFromJSON = json => Node.fromJSON(this, json);
+          this.markFromJSON = json => Mark.fromJSON(this, json);
           this.topNodeType = this.nodes[this.spec.topNode || "doc"];
           this.cached.wrappings = Object.create(null);
       }
@@ -17034,20 +17117,6 @@
           if (typeof type == "string")
               type = this.marks[type];
           return type.create(attrs);
-      }
-      /**
-      Deserialize a node from its JSON representation. This method is
-      bound.
-      */
-      nodeFromJSON(json) {
-          return Node.fromJSON(this, json);
-      }
-      /**
-      Deserialize a mark from its JSON representation. This method is
-      bound.
-      */
-      markFromJSON(json) {
-          return Mark.fromJSON(this, json);
       }
       /**
       @internal
@@ -17231,7 +17300,7 @@
       /**
       Construct a DOM parser using the parsing rules listed in a
       schema's [node specs](https://prosemirror.net/docs/ref/#model.NodeSpec.parseDOM), reordered by
-      [priority](https://prosemirror.net/docs/ref/#model.ParseRule.priority).
+      [priority](https://prosemirror.net/docs/ref/#model.GenericParseRule.priority).
       */
       static fromSchema(schema) {
           return schema.cached.domParser ||
@@ -17353,6 +17422,7 @@
           let value = dom.nodeValue;
           let top = this.top, preserveWS = (top.options & OPT_PRESERVE_WS_FULL) ? "full"
               : this.localPreserveWS || (top.options & OPT_PRESERVE_WS) > 0;
+          let { schema } = this.parser;
           if (preserveWS === "full" ||
               top.inlineContext(dom) ||
               /[^ \t\r\n\u000c]/.test(value)) {
@@ -17370,14 +17440,24 @@
                           value = value.slice(1);
                   }
               }
-              else if (preserveWS !== "full") {
-                  value = value.replace(/\r?\n|\r/g, " ");
-              }
-              else {
+              else if (preserveWS === "full") {
                   value = value.replace(/\r\n?/g, "\n");
               }
+              else if (schema.linebreakReplacement && /[\r\n]/.test(value) && this.top.findWrapping(schema.linebreakReplacement.create())) {
+                  let lines = value.split(/\r?\n|\r/);
+                  for (let i = 0; i < lines.length; i++) {
+                      if (i)
+                          this.insertNode(schema.linebreakReplacement.create(), marks, true);
+                      if (lines[i])
+                          this.insertNode(schema.text(lines[i]), marks, !/\S/.test(lines[i]));
+                  }
+                  value = "";
+              }
+              else {
+                  value = value.replace(/\r?\n|\r/g, " ");
+              }
               if (value)
-                  this.insertNode(this.parser.schema.text(value), marks, !/\S/.test(value));
+                  this.insertNode(schema.text(value), marks, !/\S/.test(value));
               this.findInText(dom);
           }
           else {
@@ -17982,6 +18062,8 @@
                   let space = name.indexOf(" ");
                   if (space > 0)
                       dom.setAttributeNS(name.slice(0, space), name.slice(space + 1), attrs[name]);
+                  else if (name == "style" && dom.style)
+                      dom.style.cssText = attrs[name];
                   else
                       dom.setAttribute(name, attrs[name]);
               }
@@ -19538,7 +19620,7 @@
       let $from = tr.doc.resolve(from), $to = tr.doc.resolve(to);
       if (fitsTrivially($from, $to, slice))
           return tr.step(new ReplaceStep(from, to, slice));
-      let targetDepths = coveredDepths($from, tr.doc.resolve(to));
+      let targetDepths = coveredDepths($from, $to);
       // Can't replace the whole document, so remove 0 if it's present
       if (targetDepths[targetDepths.length - 1] == 0)
           targetDepths.pop();
@@ -20685,7 +20767,6 @@
           else {
               if (to == null)
                   to = from;
-              to = to == null ? from : to;
               if (!text)
                   return this.deleteRange(from, to);
               let marks = this.storedMarks;
@@ -20694,7 +20775,7 @@
                   marks = to == from ? $from.marks() : $from.marksAcross(this.doc.resolve(to));
               }
               this.replaceRangeWith(from, to, schema.text(text, marks));
-              if (!this.selection.empty)
+              if (!this.selection.empty && this.selection.to == from + text.length)
                   this.setSelection(Selection.near(this.selection.$to));
               return this;
           }
@@ -20890,7 +20971,7 @@
           return newInstance;
       }
       /**
-      Start a [transaction](https://prosemirror.net/docs/ref/#state.Transaction) from this state.
+      Accessor that constructs and returns a new [transaction](https://prosemirror.net/docs/ref/#state.Transaction) from this state.
       */
       get tr() { return new Transaction(this); }
       /**
@@ -21084,6 +21165,7 @@
   };
   const atomElements = /^(img|br|input|textarea|hr)$/i;
   function scanFor(node, off, targetNode, targetOff, dir) {
+      var _a;
       for (;;) {
           if (node == targetNode && off == targetOff)
               return true;
@@ -21096,10 +21178,17 @@
               node = parent;
           }
           else if (node.nodeType == 1) {
-              node = node.childNodes[off + (dir < 0 ? -1 : 0)];
-              if (node.contentEditable == "false")
-                  return false;
-              off = dir < 0 ? nodeSize(node) : 0;
+              let child = node.childNodes[off + (dir < 0 ? -1 : 0)];
+              if (child.nodeType == 1 && child.contentEditable == "false") {
+                  if ((_a = child.pmViewDesc) === null || _a === void 0 ? void 0 : _a.ignoreForSelection)
+                      off += dir;
+                  else
+                      return false;
+              }
+              else {
+                  node = child;
+                  off = dir < 0 ? nodeSize(node) : 0;
+              }
           }
           else {
               return false;
@@ -21455,7 +21544,7 @@
           if (desc.dom.nodeType == 1 && (desc.node.isBlock && desc.parent || !desc.contentDOM) &&
               // Ignore elements with zero-size bounding rectangles
               ((rect = desc.dom.getBoundingClientRect()).width || rect.height)) {
-              if (desc.node.isBlock && desc.parent) {
+              if (desc.node.isBlock && desc.parent && !/^T(R|BODY|HEAD|FOOT)$/.test(desc.dom.nodeName)) {
                   // Only apply the horizontal test to the innermost block. Vertical for any parent.
                   if (!sawBlock && rect.left > coords.left || rect.top > coords.top)
                       outsideBlock = desc.posBefore;
@@ -22113,7 +22202,7 @@
           // (one where the focus is before the anchor), but not all
           // browsers support it yet.
           let domSelExtended = false;
-          if ((domSel.extend || anchor == head) && !brKludge) {
+          if ((domSel.extend || anchor == head) && !(brKludge && gecko)) {
               domSel.collapse(anchorDOM.node, anchorDOM.offset);
               try {
                   if (anchor != head)
@@ -22183,6 +22272,7 @@
       }
       get domAtom() { return false; }
       get ignoreForCoords() { return false; }
+      get ignoreForSelection() { return false; }
       isText(text) { return false; }
   }
   // A widget desc represents a widget decoration, which is a DOM node
@@ -22227,6 +22317,7 @@
           super.destroy();
       }
       get domAtom() { return true; }
+      get ignoreForSelection() { return !!this.widget.type.spec.relaxedSide; }
       get side() { return this.widget.type.side; }
   }
   class CompositionViewDesc extends ViewDesc {
@@ -22523,17 +22614,18 @@
       }
       // Mark this node as being the selected node.
       selectNode() {
-          if (this.nodeDOM.nodeType == 1)
+          if (this.nodeDOM.nodeType == 1) {
               this.nodeDOM.classList.add("ProseMirror-selectednode");
-          if (this.contentDOM || !this.node.type.spec.draggable)
-              this.dom.draggable = true;
+              if (this.contentDOM || !this.node.type.spec.draggable)
+                  this.nodeDOM.draggable = true;
+          }
       }
       // Remove selected node marking from this node.
       deselectNode() {
           if (this.nodeDOM.nodeType == 1) {
               this.nodeDOM.classList.remove("ProseMirror-selectednode");
               if (this.contentDOM || !this.node.type.spec.draggable)
-                  this.dom.removeAttribute("draggable");
+                  this.nodeDOM.removeAttribute("draggable");
           }
       }
       get domAtom() { return this.node.isAtom; }
@@ -23372,17 +23464,14 @@
       });
   }
   function selectCursorWrapper(view) {
-      let domSel = view.domSelection(), range = document.createRange();
+      let domSel = view.domSelection();
       if (!domSel)
           return;
       let node = view.cursorWrapper.dom, img = node.nodeName == "IMG";
       if (img)
-          range.setStart(node.parentNode, domIndex(node) + 1);
+          domSel.collapse(node.parentNode, domIndex(node) + 1);
       else
-          range.setStart(node, 0);
-      range.collapse(true);
-      domSel.removeAllRanges();
-      domSel.addRange(range);
+          domSel.collapse(node, 0);
       // Kludge to kill 'control selection' in IE11 when selecting an
       // invisible cursor wrapper, since that would result in those weird
       // resize handles and a selection that considers the absolutely
@@ -23860,11 +23949,14 @@
       let dom, slice;
       if (!html && !text)
           return null;
-      let asText = text && (plainText || inCode || !html);
+      let asText = !!text && (plainText || inCode || !html);
       if (asText) {
           view.someProp("transformPastedText", f => { text = f(text, inCode || plainText, view); });
-          if (inCode)
-              return text ? new Slice(Fragment.from(view.state.schema.text(text.replace(/\r\n?/g, "\n"))), 0, 0) : Slice.empty;
+          if (inCode) {
+              slice = new Slice(Fragment.from(view.state.schema.text(text.replace(/\r\n?/g, "\n"))), 0, 0);
+              view.someProp("transformPasted", f => { slice = f(slice, view, true); });
+              return slice;
+          }
           let parsed = view.someProp("clipboardTextParser", f => f(text, $context, plainText, view));
           if (parsed) {
               slice = parsed;
@@ -23922,7 +24014,7 @@
               slice = closeSlice(slice, openStart, openEnd);
           }
       }
-      view.someProp("transformPasted", f => { slice = f(slice, view); });
+      view.someProp("transformPasted", f => { slice = f(slice, view, asText); });
       return slice;
   }
   const inlineParents = /^(a|abbr|acronym|b|cite|code|del|em|i|ins|kbd|label|output|q|ruby|s|samp|span|strong|sub|sup|time|u|tt|var)$/i;
@@ -24096,7 +24188,7 @@
           this.mouseDown = null;
           this.lastKeyCode = null;
           this.lastKeyCodeTime = 0;
-          this.lastClick = { time: 0, x: 0, y: 0, type: "" };
+          this.lastClick = { time: 0, x: 0, y: 0, type: "", button: 0 };
           this.lastSelectionOrigin = null;
           this.lastSelectionTime = 0;
           this.lastIOSEnter = 0;
@@ -24224,8 +24316,9 @@
       let sel = view.state.selection;
       if (!(sel instanceof TextSelection) || !sel.$from.sameParent(sel.$to)) {
           let text = String.fromCharCode(event.charCode);
-          if (!/[\r\n]/.test(text) && !view.someProp("handleTextInput", f => f(view, sel.$from.pos, sel.$to.pos, text)))
-              view.dispatch(view.state.tr.insertText(text).scrollIntoView());
+          let deflt = () => view.state.tr.insertText(text).scrollIntoView();
+          if (!/[\r\n]/.test(text) && !view.someProp("handleTextInput", f => f(view, sel.$from.pos, sel.$to.pos, text, deflt)))
+              view.dispatch(deflt());
           event.preventDefault();
       }
   };
@@ -24338,13 +24431,14 @@
       view.input.shiftKey = event.shiftKey;
       let flushed = forceDOMFlush(view);
       let now = Date.now(), type = "singleClick";
-      if (now - view.input.lastClick.time < 500 && isNear(event, view.input.lastClick) && !event[selectNodeModifier]) {
+      if (now - view.input.lastClick.time < 500 && isNear(event, view.input.lastClick) && !event[selectNodeModifier] &&
+          view.input.lastClick.button == event.button) {
           if (view.input.lastClick.type == "singleClick")
               type = "doubleClick";
           else if (view.input.lastClick.type == "doubleClick")
               type = "tripleClick";
       }
-      view.input.lastClick = { time: now, x: event.clientX, y: event.clientY, type };
+      view.input.lastClick = { time: now, x: event.clientX, y: event.clientY, type, button: event.button };
       let pos = view.posAtCoords(eventCoords(event));
       if (!pos)
           return;
@@ -24383,7 +24477,7 @@
           }
           const target = flushed ? null : event.target;
           const targetDesc = target ? view.docView.nearestDesc(target, true) : null;
-          this.target = targetDesc && targetDesc.dom.nodeType == 1 ? targetDesc.dom : null;
+          this.target = targetDesc && targetDesc.nodeDOM.nodeType == 1 ? targetDesc.nodeDOM : null;
           let { selection } = view.state;
           if (event.button == 0 &&
               targetNode.type.spec.draggable && targetNode.type.spec.selectable !== false ||
@@ -24601,10 +24695,10 @@
       view.domObserver.forceFlush();
       clearComposition(view);
       if (restarting || view.docView && view.docView.dirty) {
-          let sel = selectionFromDOM(view);
-          if (sel && !sel.eq(view.state.selection))
+          let sel = selectionFromDOM(view), cur = view.state.selection;
+          if (sel && !sel.eq(cur))
               view.dispatch(view.state.tr.setSelection(sel));
-          else if ((view.markCursor || restarting) && !view.state.selection.empty)
+          else if ((view.markCursor || restarting) && !cur.$from.node(cur.$from.sharedDepth(cur.to)).inlineContent)
               view.dispatch(view.state.tr.deleteSelection());
           else
               view.updateState(view.state);
@@ -24780,7 +24874,7 @@
       let $mouse = view.state.doc.resolve(eventPos.pos);
       let slice = dragging && dragging.slice;
       if (slice) {
-          view.someProp("transformPasted", f => { slice = f(slice, view); });
+          view.someProp("transformPasted", f => { slice = f(slice, view, false); });
       }
       else {
           slice = parseFromClipboard(view, getText(event.dataTransfer), brokenClipboardAPI ? null : event.dataTransfer.getData("text/html"), false, $mouse);
@@ -25966,7 +26060,7 @@
       }
       return null;
   }
-  const isInline = /^(a|abbr|acronym|b|bd[io]|big|br|button|cite|code|data(list)?|del|dfn|em|i|ins|kbd|label|map|mark|meter|output|q|ruby|s|samp|small|span|strong|su[bp]|time|u|tt|var)$/i;
+  const isInline = /^(a|abbr|acronym|b|bd[io]|big|br|button|cite|code|data(list)?|del|dfn|em|i|img|ins|kbd|label|map|mark|meter|output|q|ruby|s|samp|small|span|strong|su[bp]|time|u|tt|var)$/i;
   function readDOMChange(view, from, to, typeOver, addedNodes) {
       let compositionID = view.input.compositionPendingChanges || (view.composing ? view.input.compositionID : 0);
       view.input.compositionPendingChanges = 0;
@@ -26065,16 +26159,13 @@
       let $to = parse.doc.resolveNoCache(change.endB - parse.from);
       let $fromA = doc.resolve(change.start);
       let inlineChange = $from.sameParent($to) && $from.parent.inlineContent && $fromA.end() >= change.endA;
-      let nextSel;
       // If this looks like the effect of pressing Enter (or was recorded
       // as being an iOS enter press), just dispatch an Enter key instead.
       if (((ios && view.input.lastIOSEnter > Date.now() - 225 &&
           (!inlineChange || addedNodes.some(n => n.nodeName == "DIV" || n.nodeName == "P"))) ||
           (!inlineChange && $from.pos < parse.doc.content.size &&
               (!$from.sameParent($to) || !$from.parent.inlineContent) &&
-              !/\S/.test(parse.doc.textBetween($from.pos, $to.pos, "", "")) &&
-              (nextSel = Selection.findFrom(parse.doc.resolve($from.pos + 1), 1, true)) &&
-              nextSel.head > $from.pos)) &&
+              $from.pos < $to.pos && !/\S/.test(parse.doc.textBetween($from.pos, $to.pos, "", "")))) &&
           view.someProp("handleKeyDown", f => f(view, keyEvent(13, "Enter")))) {
           view.input.lastIOSEnter = 0;
           return;
@@ -26109,7 +26200,26 @@
           }, 20);
       }
       let chFrom = change.start, chTo = change.endA;
-      let tr, storedMarks, markChange;
+      let mkTr = (base) => {
+          let tr = base || view.state.tr.replace(chFrom, chTo, parse.doc.slice(change.start - parse.from, change.endB - parse.from));
+          if (parse.sel) {
+              let sel = resolveSelection(view, tr.doc, parse.sel);
+              // Chrome will sometimes, during composition, report the
+              // selection in the wrong place. If it looks like that is
+              // happening, don't update the selection.
+              // Edge just doesn't move the cursor forward when you start typing
+              // in an empty block or between br nodes.
+              if (sel && !(chrome && view.composing && sel.empty &&
+                  (change.start != change.endB || view.input.lastChromeDelete < Date.now() - 100) &&
+                  (sel.head == chFrom || sel.head == tr.mapping.map(chTo) - 1) ||
+                  ie && sel.empty && sel.head == chFrom))
+                  tr.setSelection(sel);
+          }
+          if (compositionID)
+              tr.setMeta("composition", compositionID);
+          return tr.scrollIntoView();
+      };
+      let markChange;
       if (inlineChange) {
           if ($from.pos == $to.pos) { // Deletion
               // IE11 sometimes weirdly moves the DOM selection around after
@@ -26118,46 +26228,36 @@
                   view.domObserver.suppressSelectionUpdates();
                   setTimeout(() => selectionToDOM(view), 20);
               }
-              tr = view.state.tr.delete(chFrom, chTo);
-              storedMarks = doc.resolve(change.start).marksAcross(doc.resolve(change.endA));
+              let tr = mkTr(view.state.tr.delete(chFrom, chTo));
+              let marks = doc.resolve(change.start).marksAcross(doc.resolve(change.endA));
+              if (marks)
+                  tr.ensureMarks(marks);
+              view.dispatch(tr);
           }
           else if ( // Adding or removing a mark
           change.endA == change.endB &&
               (markChange = isMarkChange($from.parent.content.cut($from.parentOffset, $to.parentOffset), $fromA.parent.content.cut($fromA.parentOffset, change.endA - $fromA.start())))) {
-              tr = view.state.tr;
+              let tr = mkTr(view.state.tr);
               if (markChange.type == "add")
                   tr.addMark(chFrom, chTo, markChange.mark);
               else
                   tr.removeMark(chFrom, chTo, markChange.mark);
+              view.dispatch(tr);
           }
           else if ($from.parent.child($from.index()).isText && $from.index() == $to.index() - ($to.textOffset ? 0 : 1)) {
               // Both positions in the same text node -- simply insert text
               let text = $from.parent.textBetween($from.parentOffset, $to.parentOffset);
-              if (view.someProp("handleTextInput", f => f(view, chFrom, chTo, text)))
-                  return;
-              tr = view.state.tr.insertText(text, chFrom, chTo);
+              let deflt = () => mkTr(view.state.tr.insertText(text, chFrom, chTo));
+              if (!view.someProp("handleTextInput", f => f(view, chFrom, chTo, text, deflt)))
+                  view.dispatch(deflt());
+          }
+          else {
+              view.dispatch(mkTr());
           }
       }
-      if (!tr)
-          tr = view.state.tr.replace(chFrom, chTo, parse.doc.slice(change.start - parse.from, change.endB - parse.from));
-      if (parse.sel) {
-          let sel = resolveSelection(view, tr.doc, parse.sel);
-          // Chrome will sometimes, during composition, report the
-          // selection in the wrong place. If it looks like that is
-          // happening, don't update the selection.
-          // Edge just doesn't move the cursor forward when you start typing
-          // in an empty block or between br nodes.
-          if (sel && !(chrome && view.composing && sel.empty &&
-              (change.start != change.endB || view.input.lastChromeDelete < Date.now() - 100) &&
-              (sel.head == chFrom || sel.head == tr.mapping.map(chTo) - 1) ||
-              ie && sel.empty && sel.head == chFrom))
-              tr.setSelection(sel);
+      else {
+          view.dispatch(mkTr());
       }
-      if (storedMarks)
-          tr.ensureMarks(storedMarks);
-      if (compositionID)
-          tr.setMeta("composition", compositionID);
-      view.dispatch(tr.scrollIntoView());
   }
   function resolveSelection(view, doc, parsedSel) {
       if (Math.max(parsedSel.anchor, parsedSel.head) > doc.content.size)
@@ -26751,22 +26851,6 @@
           return dispatchEvent(this, event);
       }
       /**
-      Dispatch a transaction. Will call
-      [`dispatchTransaction`](https://prosemirror.net/docs/ref/#view.DirectEditorProps.dispatchTransaction)
-      when given, and otherwise defaults to applying the transaction to
-      the current state and calling
-      [`updateState`](https://prosemirror.net/docs/ref/#view.EditorView.updateState) with the result.
-      This method is bound to the view instance, so that it can be
-      easily passed around.
-      */
-      dispatch(tr) {
-          let dispatchTransaction = this._props.dispatchTransaction;
-          if (dispatchTransaction)
-              dispatchTransaction.call(this, tr);
-          else
-              this.updateState(this.state.apply(tr));
-      }
-      /**
       @internal
       */
       domSelectionRange() {
@@ -26783,6 +26867,13 @@
           return this.root.getSelection();
       }
   }
+  EditorView.prototype.dispatch = function (tr) {
+      let dispatchTransaction = this._props.dispatchTransaction;
+      if (dispatchTransaction)
+          dispatchTransaction.call(this, tr);
+      else
+          this.updateState(this.state.apply(tr));
+  };
   function computeDocDeco(view) {
       let attrs = Object.create(null);
       attrs.class = "ProseMirror";
@@ -28773,6 +28864,7 @@
       Code font mark. Represented as a `<code>` element.
       */
       code: {
+          code: true,
           parseDOM: [{ tag: "code" }],
           toDOM() { return codeDOM$1; }
       }

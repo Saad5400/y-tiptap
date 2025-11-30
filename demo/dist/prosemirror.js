@@ -145,10 +145,10 @@
    * True iff condition holds on some element in the Array.
    *
    * @function
-   * @template S
-   * @template {ArrayLike<S>} ARR
+   * @template {ArrayLike<any>} ARR
+   *
    * @param {ARR} arr
-   * @param {function(S, number, ARR):boolean} f
+   * @param {ARR extends ArrayLike<infer S> ? ((value:S, index:number, arr:ARR) => boolean) : never} f
    * @return {boolean}
    */
   const some = (arr, f) => {
@@ -1780,10 +1780,10 @@
   const size = obj => keys$1(obj).length;
 
   /**
-   * @param {Object|undefined} obj
+   * @param {Object|null|undefined} obj
    */
   const isEmpty = obj => {
-    // eslint-disable-next-line
+    // eslint-disable-next-line no-unreachable-loop
     for (const _k in obj) {
       return false
     }
@@ -1791,8 +1791,9 @@
   };
 
   /**
-   * @param {Object<string,any>} obj
-   * @param {function(any,string):boolean} f
+   * @template {{ [key:string|number|symbol]: any }} T
+   * @param {T} obj
+   * @param {(v:T[keyof T],k:keyof T)=>boolean} f
    * @return {boolean}
    */
   const every = (obj, f) => {
@@ -1808,7 +1809,7 @@
    * Calls `Object.prototype.hasOwnProperty`.
    *
    * @param {any} obj
-   * @param {string|symbol} key
+   * @param {string|number|symbol} key
    * @return {boolean}
    */
   const hasProperty = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
@@ -1819,6 +1820,36 @@
    * @return {boolean}
    */
   const equalFlat = (a, b) => a === b || (size(a) === size(b) && every(a, (val, key) => (val !== undefined || hasProperty(b, key)) && b[key] === val));
+
+  /**
+   * Make an object immutable. This hurts performance and is usually not needed if you perform good
+   * coding practices.
+   */
+  const freeze = Object.freeze;
+
+  /**
+   * Make an object and all its children immutable.
+   * This *really* hurts performance and is usually not needed if you perform good coding practices.
+   *
+   * @template {any} T
+   * @param {T} o
+   * @return {Readonly<T>}
+   */
+  const deepFreeze = (o) => {
+    for (const key in o) {
+      const c = o[key];
+      if (typeof c === 'object' || typeof c === 'function') {
+        deepFreeze(o[key]);
+      }
+    }
+    return freeze(o)
+  };
+
+  const EqualityTraitSymbol = Symbol('Equality');
+
+  /**
+   * @typedef {{ [EqualityTraitSymbol]:(other:EqualityTrait)=>boolean }} EqualityTrait
+   */
 
   /**
    * Common functions and function call helpers.
@@ -1854,15 +1885,6 @@
    */
   const id = a => a;
 
-  /**
-   * @template T
-   *
-   * @param {T} a
-   * @param {T} b
-   * @return {boolean}
-   */
-  const equalityStrict = (a, b) => a === b;
-
   /* c8 ignore start */
 
   /**
@@ -1871,14 +1893,14 @@
    * @return {boolean}
    */
   const equalityDeep = (a, b) => {
-    if (a == null || b == null) {
-      return equalityStrict(a, b)
-    }
-    if (a.constructor !== b.constructor) {
-      return false
-    }
     if (a === b) {
       return true
+    }
+    if (a == null || b == null || a.constructor !== b.constructor) {
+      return false
+    }
+    if (a[EqualityTraitSymbol] != null) {
+      return a[EqualityTraitSymbol](b)
     }
     switch (a.constructor) {
       case ArrayBuffer:
@@ -2277,8 +2299,6 @@
 
   /**
    * Return fresh symbol.
-   *
-   * @return {Symbol}
    */
   const create = Symbol;
 
@@ -2603,9 +2623,12 @@
   const iterateDeletedStructs = (transaction, ds, f) =>
     ds.clients.forEach((deletes, clientid) => {
       const structs = /** @type {Array<GC|Item>} */ (transaction.doc.store.clients.get(clientid));
-      for (let i = 0; i < deletes.length; i++) {
-        const del = deletes[i];
-        iterateStructs(transaction, structs, del.clock, del.len, f);
+      if (structs != null) {
+        const lastStruct = structs[structs.length - 1];
+        const clockState = lastStruct.id.clock + lastStruct.length;
+        for (let i = 0, del = deletes[i]; i < deletes.length && del.clock < clockState; del = deletes[++i]) {
+          iterateStructs(transaction, structs, del.clock, del.len, f);
+        }
       }
     });
 
@@ -2962,8 +2985,9 @@
        * lost (with false as a parameter).
        */
       this.isSynced = false;
+      this.isDestroyed = false;
       /**
-       * Promise that resolves once the document has been loaded from a presistence provider.
+       * Promise that resolves once the document has been loaded from a persistence provider.
        */
       this.whenLoaded = create$2(resolve => {
         this.on('load', () => {
@@ -3180,6 +3204,7 @@
      * Emit `destroy` event and unregister all event handlers.
      */
     destroy () {
+      this.isDestroyed = true;
       from(this.subdocs).forEach(subdoc => subdoc.destroy());
       const item = this._item;
       if (item !== null) {
@@ -3640,7 +3665,7 @@
        */
       this.keyMap = new Map();
       /**
-       * Refers to the next uniqe key-identifier to me used.
+       * Refers to the next unique key-identifier to me used.
        * See writeKey method for more information.
        *
        * @type {number}
@@ -3917,7 +3942,7 @@
             // @type {string|null}
             const struct = new Item$1(
               createID(client, clock),
-              null, // leftd
+              null, // left
               (info & BIT8) === BIT8 ? decoder.readLeftID() : null, // origin
               null, // right
               (info & BIT7) === BIT7 ? decoder.readRightID() : null, // right origin
@@ -3941,7 +3966,7 @@
 
             const struct = new Item(
               createID(client, clock),
-              null, // leftd
+              null, // left
               origin, // origin
               null, // right
               rightOrigin, // right origin
@@ -3974,7 +3999,7 @@
    * then we start emptying the stack.
    *
    * It is not possible to have circles: i.e. struct1 (from client1) depends on struct2 (from client2)
-   * depends on struct3 (from client1). Therefore the max stack size is eqaul to `structReaders.length`.
+   * depends on struct3 (from client1). Therefore the max stack size is equal to `structReaders.length`.
    *
    * This method is implemented in a way so that we can resume computation if this update
    * causally depends on another update.
@@ -4042,14 +4067,14 @@
     const addStackToRestSS = () => {
       for (const item of stack) {
         const client = item.id.client;
-        const unapplicableItems = clientsStructRefs.get(client);
-        if (unapplicableItems) {
+        const inapplicableItems = clientsStructRefs.get(client);
+        if (inapplicableItems) {
           // decrement because we weren't able to apply previous operation
-          unapplicableItems.i--;
-          restStructs.clients.set(client, unapplicableItems.refs.slice(unapplicableItems.i));
+          inapplicableItems.i--;
+          restStructs.clients.set(client, inapplicableItems.refs.slice(inapplicableItems.i));
           clientsStructRefs.delete(client);
-          unapplicableItems.i = 0;
-          unapplicableItems.refs = [];
+          inapplicableItems.i = 0;
+          inapplicableItems.refs = [];
         } else {
           // item was the last item on clientsStructRefs and the field was already cleared. Add item to restStructs and continue
           restStructs.clients.set(client, [item]);
@@ -4133,7 +4158,7 @@
   /**
    * Read and apply a document update.
    *
-   * This function has the same effect as `applyUpdate` but accepts an decoder.
+   * This function has the same effect as `applyUpdate` but accepts a decoder.
    *
    * @param {decoding.Decoder} decoder
    * @param {Doc} ydoc
@@ -4595,7 +4620,7 @@
        * after the meant position.
        * I.e. position 1 in 'ab' is associated to character 'b'.
        *
-       * If assoc < 0, then the relative position is associated to the caharacter
+       * If assoc < 0, then the relative position is associated to the character
        * before the meant position.
        *
        * @type {number}
@@ -4610,7 +4635,7 @@
    *
    * @function
    */
-  const createRelativePositionFromJSON = json => new RelativePosition(json.type == null ? null : createID(json.type.client, json.type.clock), json.tname || null, json.item == null ? null : createID(json.item.client, json.item.clock), json.assoc == null ? 0 : json.assoc);
+  const createRelativePositionFromJSON = json => new RelativePosition(json.type == null ? null : createID(json.type.client, json.type.clock), json.tname ?? null, json.item == null ? null : createID(json.item.client, json.item.clock), json.assoc == null ? 0 : json.assoc);
 
   class AbsolutePosition {
     /**
@@ -4695,6 +4720,18 @@
   };
 
   /**
+   * @param {StructStore} store
+   * @param {ID} id
+   */
+  const getItemWithOffset = (store, id) => {
+    const item = getItem(store, id);
+    const diff = id.clock - item.id.clock;
+    return {
+      item, diff
+    }
+  };
+
+  /**
    * Transform a relative position to an absolute position.
    *
    * If you want to share the relative position with other users, you should set
@@ -4724,7 +4761,7 @@
       if (getState(store, rightID.client) <= rightID.clock) {
         return null
       }
-      const res = followUndoneDeletions ? followRedone(store, rightID) : { item: getItem(store, rightID), diff: 0 };
+      const res = followUndoneDeletions ? followRedone(store, rightID) : getItemWithOffset(store, rightID);
       const right = res.item;
       if (!(right instanceof Item$1)) {
         return null
@@ -5270,7 +5307,7 @@
    */
   const tryMergeDeleteSet = (ds, store) => {
     // try to merge deleted / gc'd items
-    // merge from right to left for better efficiecy and so we don't miss any merge targets
+    // merge from right to left for better efficiency and so we don't miss any merge targets
     ds.clients.forEach((deleteItems, client) => {
       const structs = /** @type {Array<GC|Item>} */ (store.clients.get(client));
       for (let di = deleteItems.length - 1; di >= 0; di--) {
@@ -5499,7 +5536,7 @@
    */
   const clearUndoManagerStackItem = (tr, um, stackItem) => {
     iterateDeletedStructs(tr, stackItem.deletions, item => {
-      if (item instanceof Item$1 && um.scope.some(type => isParentOf(type, item))) {
+      if (item instanceof Item$1 && um.scope.some(type => type === tr.doc || isParentOf(/** @type {AbstractType<any>} */ (type), item))) {
         keepItem(item, false);
       }
     });
@@ -5541,7 +5578,7 @@
               }
               struct = item;
             }
-            if (!struct.deleted && scope.some(type => isParentOf(type, /** @type {Item} */ (struct)))) {
+            if (!struct.deleted && scope.some(type => type === transaction.doc || isParentOf(/** @type {AbstractType<any>} */ (type), /** @type {Item} */ (struct)))) {
               itemsToDelete.push(struct);
             }
           }
@@ -5549,7 +5586,7 @@
         iterateDeletedStructs(transaction, stackItem.deletions, struct => {
           if (
             struct instanceof Item$1 &&
-            scope.some(type => isParentOf(type, struct)) &&
+            scope.some(type => type === transaction.doc || isParentOf(/** @type {AbstractType<any>} */ (type), struct)) &&
             // Never redo structs in stackItem.insertions because they were created and deleted in the same capture interval.
             !isDeleted(stackItem.insertions, struct.id)
           ) {
@@ -5578,12 +5615,13 @@
       });
       _tr = transaction;
     }, undoManager);
-    if (undoManager.currStackItem != null) {
+    const res = undoManager.currStackItem;
+    if (res != null) {
       const changedParentTypes = _tr.changedParentTypes;
-      undoManager.emit('stack-item-popped', [{ stackItem: undoManager.currStackItem, type: eventType, changedParentTypes, origin: undoManager }, undoManager]);
+      undoManager.emit('stack-item-popped', [{ stackItem: res, type: eventType, changedParentTypes, origin: undoManager }, undoManager]);
       undoManager.currStackItem = null;
     }
-    return undoManager.currStackItem
+    return res
   };
 
   /**
@@ -5618,7 +5656,7 @@
    */
   class UndoManager extends ObservableV2 {
     /**
-     * @param {AbstractType<any>|Array<AbstractType<any>>} typeScope Accepts either a single type, or an array of types
+     * @param {Doc|AbstractType<any>|Array<AbstractType<any>>} typeScope Limits the scope of the UndoManager. If this is set to a ydoc instance, all changes on that ydoc will be undone. If set to a specific type, only changes on that type or its children will be undone. Also accepts an array of types.
      * @param {UndoManagerOptions} options
      */
     constructor (typeScope, {
@@ -5627,11 +5665,11 @@
       deleteFilter = () => true,
       trackedOrigins = new Set([null]),
       ignoreRemoteMapChanges = false,
-      doc = /** @type {Doc} */ (isArray(typeScope) ? typeScope[0].doc : typeScope.doc)
+      doc = /** @type {Doc} */ (isArray(typeScope) ? typeScope[0].doc : typeScope instanceof Doc ? typeScope : typeScope.doc)
     } = {}) {
       super();
       /**
-       * @type {Array<AbstractType<any>>}
+       * @type {Array<AbstractType<any> | Doc>}
        */
       this.scope = [];
       this.doc = doc;
@@ -5671,7 +5709,7 @@
         // Only track certain transactions
         if (
           !this.captureTransaction(transaction) ||
-          !this.scope.some(type => transaction.changedParentTypes.has(type)) ||
+          !this.scope.some(type => transaction.changedParentTypes.has(/** @type {AbstractType<any>} */ (type)) || type === this.doc) ||
           (!this.trackedOrigins.has(transaction.origin) && (!transaction.origin || !this.trackedOrigins.has(transaction.origin.constructor)))
         ) {
           return
@@ -5710,7 +5748,7 @@
         }
         // make sure that deleted structs are not gc'd
         iterateDeletedStructs(transaction, transaction.deleteSet, /** @param {Item|GC} item */ item => {
-          if (item instanceof Item$1 && this.scope.some(type => isParentOf(type, item))) {
+          if (item instanceof Item$1 && this.scope.some(type => type === transaction.doc || isParentOf(/** @type {AbstractType<any>} */ (type), item))) {
             keepItem(item, true);
           }
         });
@@ -5731,13 +5769,17 @@
     }
 
     /**
-     * @param {Array<AbstractType<any>> | AbstractType<any>} ytypes
+     * Extend the scope.
+     *
+     * @param {Array<AbstractType<any> | Doc> | AbstractType<any> | Doc} ytypes
      */
     addToScope (ytypes) {
+      const tmpSet = new Set(this.scope);
       ytypes = isArray(ytypes) ? ytypes : [ytypes];
       ytypes.forEach(ytype => {
-        if (this.scope.every(yt => yt !== ytype)) {
-          if (ytype.doc !== this.doc) warn('[yjs#509] Not same Y.Doc'); // use MultiDocUndoManager instead. also see https://github.com/yjs/yjs/issues/509
+        if (!tmpSet.has(ytype)) {
+          tmpSet.add(ytype);
+          if (ytype instanceof AbstractType ? ytype.doc !== this.doc : ytype !== this.doc) warn('[yjs#509] Not same Y.Doc'); // use MultiDocUndoManager instead. also see https://github.com/yjs/yjs/issues/509
           this.scope.push(ytype);
         }
       });
@@ -6511,8 +6553,8 @@
         let i = 0;
         let c = /** @type {AbstractType<any>} */ (child._item.parent)._start;
         while (c !== child._item && c !== null) {
-          if (!c.deleted) {
-            i++;
+          if (!c.deleted && c.countable) {
+            i += c.length;
           }
           c = c.right;
         }
@@ -6522,6 +6564,11 @@
     }
     return path
   };
+
+  /**
+   * https://docs.yjs.dev/getting-started/working-with-shared-types#caveats
+   */
+  const warnPrematureAccess = () => { warn('Invalid access: Add Yjs type to a document before reading data.'); };
 
   const maxSearchMarker = 80;
 
@@ -6654,11 +6701,11 @@
     //   }
     // }
     // if (marker) {
-    //   if (window.lengthes == null) {
-    //     window.lengthes = []
-    //     window.getLengthes = () => window.lengthes.sort((a, b) => a - b)
+    //   if (window.lengths == null) {
+    //     window.lengths = []
+    //     window.getLengths = () => window.lengths.sort((a, b) => a - b)
     //   }
-    //   window.lengthes.push(marker.index - pindex)
+    //   window.lengths.push(marker.index - pindex)
     //   console.log('distance', marker.index - pindex, 'len', p && p.parent.length)
     // }
     if (marker !== null && abs(marker.index - pindex) < /** @type {YText|YArray<any>} */ (p.parent).length / maxSearchMarker) {
@@ -6897,6 +6944,7 @@
    * @function
    */
   const typeListSlice = (type, start, end) => {
+    type.doc ?? warnPrematureAccess();
     if (start < 0) {
       start = type._length + start;
     }
@@ -6932,6 +6980,7 @@
    * @function
    */
   const typeListToArray = type => {
+    type.doc ?? warnPrematureAccess();
     const cs = [];
     let n = type._start;
     while (n !== null) {
@@ -6981,6 +7030,7 @@
   const typeListForEach = (type, f) => {
     let index = 0;
     let n = type._start;
+    type.doc ?? warnPrematureAccess();
     while (n !== null) {
       if (n.countable && !n.deleted) {
         const c = n.content.getContent();
@@ -7070,6 +7120,7 @@
    * @function
    */
   const typeListGet = (type, index) => {
+    type.doc ?? warnPrematureAccess();
     const marker = findMarker(type, index);
     let n = type._start;
     if (marker !== null) {
@@ -7204,7 +7255,7 @@
 
   /**
    * Pushing content is special as we generally want to push after the last item. So we don't have to update
-   * the serach marker.
+   * the search marker.
    *
    * @param {Transaction} transaction
    * @param {AbstractType<any>} parent
@@ -7310,6 +7361,8 @@
         case Boolean:
         case Array:
         case String:
+        case Date:
+        case BigInt:
           content = new ContentAny([value]);
           break
         case Uint8Array:
@@ -7338,6 +7391,7 @@
    * @function
    */
   const typeMapGet = (parent, key) => {
+    parent.doc ?? warnPrematureAccess();
     const val = parent._map.get(key);
     return val !== undefined && !val.deleted ? val.content.getContent()[val.length - 1] : undefined
   };
@@ -7354,6 +7408,7 @@
      * @type {Object<string,any>}
      */
     const res = {};
+    parent.doc ?? warnPrematureAccess();
     parent._map.forEach((value, key) => {
       if (!value.deleted) {
         res[key] = value.content.getContent()[value.length - 1];
@@ -7371,6 +7426,7 @@
    * @function
    */
   const typeMapHas = (parent, key) => {
+    parent.doc ?? warnPrematureAccess();
     const val = parent._map.get(key);
     return val !== undefined && !val.deleted
   };
@@ -7404,13 +7460,16 @@
   };
 
   /**
-   * @param {Map<string,Item>} map
+   * @param {AbstractType<any> & { _map: Map<string, Item> }} type
    * @return {IterableIterator<Array<any>>}
    *
    * @private
    * @function
    */
-  const createMapIterator = map => iteratorFilter(map.entries(), /** @param {any} entry */ entry => !entry[1].deleted);
+  const createMapIterator = type => {
+    type.doc ?? warnPrematureAccess();
+    return iteratorFilter(type._map.entries(), /** @param {any} entry */ entry => !entry[1].deleted)
+  };
 
   /**
    * @module YArray
@@ -7422,16 +7481,7 @@
    * @template T
    * @extends YEvent<YArray<T>>
    */
-  class YArrayEvent extends YEvent {
-    /**
-     * @param {YArray<T>} yarray The changed type
-     * @param {Transaction} transaction The transaction object
-     */
-    constructor (yarray, transaction) {
-      super(yarray, transaction);
-      this._transaction = transaction;
-    }
-  }
+  class YArrayEvent extends YEvent {}
 
   /**
    * A shared Array implementation.
@@ -7510,7 +7560,8 @@
     }
 
     get length () {
-      return this._prelimContent === null ? this._length : this._prelimContent.length
+      this.doc ?? warnPrematureAccess();
+      return this._length
     }
 
     /**
@@ -7568,9 +7619,9 @@
     }
 
     /**
-     * Preppends content to this YArray.
+     * Prepends content to this YArray.
      *
-     * @param {Array<T>} content Array of content to preppend.
+     * @param {Array<T>} content Array of content to prepend.
      */
     unshift (content) {
       this.insert(0, content);
@@ -7612,7 +7663,8 @@
     }
 
     /**
-     * Transforms this YArray to a JavaScript Array.
+     * Returns a portion of this YArray into a JavaScript Array selected
+     * from start to end (end not included).
      *
      * @param {number} [start]
      * @param {number} [end]
@@ -7784,6 +7836,7 @@
      * @return {Object<string,any>}
      */
     toJSON () {
+      this.doc ?? warnPrematureAccess();
       /**
        * @type {Object<string,MapType>}
        */
@@ -7803,7 +7856,7 @@
      * @return {number}
      */
     get size () {
-      return [...createMapIterator(this._map)].length
+      return [...createMapIterator(this)].length
     }
 
     /**
@@ -7812,7 +7865,7 @@
      * @return {IterableIterator<string>}
      */
     keys () {
-      return iteratorMap(createMapIterator(this._map), /** @param {any} v */ v => v[0])
+      return iteratorMap(createMapIterator(this), /** @param {any} v */ v => v[0])
     }
 
     /**
@@ -7821,7 +7874,7 @@
      * @return {IterableIterator<MapType>}
      */
     values () {
-      return iteratorMap(createMapIterator(this._map), /** @param {any} v */ v => v[1].content.getContent()[v[1].length - 1])
+      return iteratorMap(createMapIterator(this), /** @param {any} v */ v => v[1].content.getContent()[v[1].length - 1])
     }
 
     /**
@@ -7830,7 +7883,7 @@
      * @return {IterableIterator<[string, MapType]>}
      */
     entries () {
-      return iteratorMap(createMapIterator(this._map), /** @param {any} v */ v => /** @type {any} */ ([v[0], v[1].content.getContent()[v[1].length - 1]]))
+      return iteratorMap(createMapIterator(this), /** @param {any} v */ v => /** @type {any} */ ([v[0], v[1].content.getContent()[v[1].length - 1]]))
     }
 
     /**
@@ -7839,6 +7892,7 @@
      * @param {function(MapType,string,YMap<MapType>):void} f A function to execute on every element of this YArray.
      */
     forEach (f) {
+      this.doc ?? warnPrematureAccess();
       this._map.forEach((item, key) => {
         if (!item.deleted) {
           f(item.content.getContent()[item.length - 1], key, this);
@@ -8387,7 +8441,7 @@
   };
 
   /**
-   * This will be called by the transction once the event handlers are called to potentially cleanup
+   * This will be called by the transaction once the event handlers are called to potentially cleanup
    * formatting attributes.
    *
    * @param {Transaction} transaction
@@ -8477,7 +8531,7 @@
 
   /**
    * The Quill Delta format represents changes on a text document with
-   * formatting information. For mor information visit {@link https://quilljs.com/docs/delta/|Quill Delta}
+   * formatting information. For more information visit {@link https://quilljs.com/docs/delta/|Quill Delta}
    *
    * @example
    *   {
@@ -8785,6 +8839,7 @@
      * @type {number}
      */
     get length () {
+      this.doc ?? warnPrematureAccess();
       return this._length
     }
 
@@ -8841,6 +8896,7 @@
      * @public
      */
     toString () {
+      this.doc ?? warnPrematureAccess();
       let str = '';
       /**
        * @type {Item|null}
@@ -8868,7 +8924,7 @@
     /**
      * Apply a {@link Delta} on this shared YText type.
      *
-     * @param {any} delta The changes to apply on this element.
+     * @param {Array<any>} delta The changes to apply on this element.
      * @param {object}  opts
      * @param {boolean} [opts.sanitize] Sanitize input delta. Removes ending newlines if set to true.
      *
@@ -8914,6 +8970,7 @@
      * @public
      */
     toDelta (snapshot, prevSnapshot, computeYChange) {
+      this.doc ?? warnPrematureAccess();
       /**
        * @type{Array<any>}
        */
@@ -9251,6 +9308,7 @@
        */
       this._currentNode = /** @type {Item} */ (root._start);
       this._firstCall = true;
+      root.doc ?? warnPrematureAccess();
     }
 
     [Symbol.iterator] () {
@@ -9279,8 +9337,12 @@
           } else {
             // walk right or up in the tree
             while (n !== null) {
-              if (n.right !== null) {
-                n = n.right;
+              /**
+               * @type {Item | null}
+               */
+              const nxt = n.next;
+              if (nxt !== null) {
+                n = nxt;
                 break
               } else if (n.parent === this._root) {
                 n = null;
@@ -9362,6 +9424,7 @@
     }
 
     get length () {
+      this.doc ?? warnPrematureAccess();
       return this._prelimContent === null ? this._length : this._prelimContent.length
     }
 
@@ -9565,9 +9628,9 @@
     }
 
     /**
-     * Preppends content to this YArray.
+     * Prepends content to this YArray.
      *
-     * @param {Array<YXmlElement|YXmlText>} content Array of content to preppend.
+     * @param {Array<YXmlElement|YXmlText>} content Array of content to prepend.
      */
     unshift (content) {
       this.insert(0, content);
@@ -9584,7 +9647,8 @@
     }
 
     /**
-     * Transforms this YArray to a JavaScript Array.
+     * Returns a portion of this YXmlFragment into a JavaScript Array selected
+     * from start to end (end not included).
      *
      * @param {number} [start]
      * @param {number} [end]
@@ -9881,7 +9945,7 @@
      * @param {YXmlElement|YXmlText|YXmlFragment} target The target on which the event is created.
      * @param {Set<string|null>} subs The set of changed attributes. `null` is included if the
      *                   child list changed.
-     * @param {Transaction} transaction The transaction instance with wich the
+     * @param {Transaction} transaction The transaction instance with which the
      *                                  change was created.
      */
     constructor (target, subs, transaction) {
@@ -10141,7 +10205,7 @@
      * This method is already assuming that `this.id.clock + this.length === this.id.clock`.
      * Also this method does *not* remove right from StructStore!
      * @param {AbstractStruct} right
-     * @return {boolean} wether this merged with right
+     * @return {boolean} whether this merged with right
      */
     mergeWith (right) {
       return false
@@ -10844,6 +10908,8 @@
     return new ContentJSON(cs)
   };
 
+  const isDevMode = getVariable('node_env') === 'development';
+
   class ContentAny {
     /**
      * @param {Array<any>} arr
@@ -10853,6 +10919,7 @@
        * @type {Array<any>}
        */
       this.arr = arr;
+      isDevMode && deepFreeze(arr);
     }
 
     /**
@@ -11581,8 +11648,7 @@
         if (this.left && this.left.constructor === Item$1) {
           this.parent = this.left.parent;
           this.parentSub = this.left.parentSub;
-        }
-        if (this.right && this.right.constructor === Item$1) {
+        } else if (this.right && this.right.constructor === Item$1) {
           this.parent = this.right.parent;
           this.parentSub = this.right.parentSub;
         }
@@ -13882,7 +13948,7 @@
       position in this fragment. The result object will be reused
       (overwritten) the next time the function is called. @internal
       */
-      findIndex(pos, round = -1) {
+      findIndex(pos) {
           if (pos == 0)
               return retIndex(0, pos);
           if (pos == this.size)
@@ -13892,7 +13958,7 @@
           for (let i = 0, curPos = 0;; i++) {
               let cur = this.child(i), end = curPos + cur.nodeSize;
               if (end >= pos) {
-                  if (end == pos || round > 0)
+                  if (end == pos)
                       return retIndex(i + 1, end);
                   return retIndex(i, curPos);
               }
@@ -14292,7 +14358,7 @@
               return null;
           return content.cut(0, dist).append(insert).append(content.cut(dist));
       }
-      let inner = insertInto(child.content, dist - offset - 1, insert);
+      let inner = insertInto(child.content, dist - offset - 1, insert, child);
       return inner && content.replaceChild(index, child.copy(inner));
   }
   function replace($from, $to, slice) {
@@ -14855,7 +14921,7 @@
       `blockSeparator` is given, it will be inserted to separate text
       from different block nodes. If `leafText` is given, it'll be
       inserted for every non-text leaf node encountered, otherwise
-      [`leafText`](https://prosemirror.net/docs/ref/#model.NodeSpec^leafText) will be used.
+      [`leafText`](https://prosemirror.net/docs/ref/#model.NodeSpec.leafText) will be used.
       */
       textBetween(from, to, blockSeparator, leafText) {
           return this.content.textBetween(from, to, blockSeparator, leafText);
@@ -16065,8 +16131,8 @@
               let type = this.marks[prop], excl = type.spec.excludes;
               type.excluded = excl == null ? [type] : excl == "" ? [] : gatherMarks(this, excl.split(" "));
           }
-          this.nodeFromJSON = this.nodeFromJSON.bind(this);
-          this.markFromJSON = this.markFromJSON.bind(this);
+          this.nodeFromJSON = json => Node$1.fromJSON(this, json);
+          this.markFromJSON = json => Mark.fromJSON(this, json);
           this.topNodeType = this.nodes[this.spec.topNode || "doc"];
           this.cached.wrappings = Object.create(null);
       }
@@ -16100,20 +16166,6 @@
           if (typeof type == "string")
               type = this.marks[type];
           return type.create(attrs);
-      }
-      /**
-      Deserialize a node from its JSON representation. This method is
-      bound.
-      */
-      nodeFromJSON(json) {
-          return Node$1.fromJSON(this, json);
-      }
-      /**
-      Deserialize a mark from its JSON representation. This method is
-      bound.
-      */
-      markFromJSON(json) {
-          return Mark.fromJSON(this, json);
       }
       /**
       @internal
@@ -16297,7 +16349,7 @@
       /**
       Construct a DOM parser using the parsing rules listed in a
       schema's [node specs](https://prosemirror.net/docs/ref/#model.NodeSpec.parseDOM), reordered by
-      [priority](https://prosemirror.net/docs/ref/#model.ParseRule.priority).
+      [priority](https://prosemirror.net/docs/ref/#model.GenericParseRule.priority).
       */
       static fromSchema(schema) {
           return schema.cached.domParser ||
@@ -16419,6 +16471,7 @@
           let value = dom.nodeValue;
           let top = this.top, preserveWS = (top.options & OPT_PRESERVE_WS_FULL) ? "full"
               : this.localPreserveWS || (top.options & OPT_PRESERVE_WS) > 0;
+          let { schema } = this.parser;
           if (preserveWS === "full" ||
               top.inlineContext(dom) ||
               /[^ \t\r\n\u000c]/.test(value)) {
@@ -16436,14 +16489,24 @@
                           value = value.slice(1);
                   }
               }
-              else if (preserveWS !== "full") {
-                  value = value.replace(/\r?\n|\r/g, " ");
-              }
-              else {
+              else if (preserveWS === "full") {
                   value = value.replace(/\r\n?/g, "\n");
               }
+              else if (schema.linebreakReplacement && /[\r\n]/.test(value) && this.top.findWrapping(schema.linebreakReplacement.create())) {
+                  let lines = value.split(/\r?\n|\r/);
+                  for (let i = 0; i < lines.length; i++) {
+                      if (i)
+                          this.insertNode(schema.linebreakReplacement.create(), marks, true);
+                      if (lines[i])
+                          this.insertNode(schema.text(lines[i]), marks, !/\S/.test(lines[i]));
+                  }
+                  value = "";
+              }
+              else {
+                  value = value.replace(/\r?\n|\r/g, " ");
+              }
               if (value)
-                  this.insertNode(this.parser.schema.text(value), marks, !/\S/.test(value));
+                  this.insertNode(schema.text(value), marks, !/\S/.test(value));
               this.findInText(dom);
           }
           else {
@@ -17048,6 +17111,8 @@
                   let space = name.indexOf(" ");
                   if (space > 0)
                       dom.setAttributeNS(name.slice(0, space), name.slice(space + 1), attrs[name]);
+                  else if (name == "style" && dom.style)
+                      dom.style.cssText = attrs[name];
                   else
                       dom.setAttribute(name, attrs[name]);
               }
@@ -18054,13 +18119,17 @@
   function liftTarget(range) {
       let parent = range.parent;
       let content = parent.content.cutByIndex(range.startIndex, range.endIndex);
-      for (let depth = range.depth;; --depth) {
+      for (let depth = range.depth, contentBefore = 0, contentAfter = 0;; --depth) {
           let node = range.$from.node(depth);
-          let index = range.$from.index(depth), endIndex = range.$to.indexAfter(depth);
+          let index = range.$from.index(depth) + contentBefore, endIndex = range.$to.indexAfter(depth) - contentAfter;
           if (depth < range.depth && node.canReplace(index, endIndex, content))
               return depth;
           if (depth == 0 || node.type.spec.isolating || !canCut(node, index, endIndex))
               break;
+          if (index)
+              contentBefore = 1;
+          if (endIndex < node.childCount)
+              contentAfter = 1;
       }
       return null;
   }
@@ -18711,7 +18780,7 @@
       let $from = tr.doc.resolve(from), $to = tr.doc.resolve(to);
       if (fitsTrivially($from, $to, slice))
           return tr.step(new ReplaceStep(from, to, slice));
-      let targetDepths = coveredDepths($from, tr.doc.resolve(to));
+      let targetDepths = coveredDepths($from, $to);
       // Can't replace the whole document, so remove 0 if it's present
       if (targetDepths[targetDepths.length - 1] == 0)
           targetDepths.pop();
@@ -19858,7 +19927,6 @@
           else {
               if (to == null)
                   to = from;
-              to = to == null ? from : to;
               if (!text)
                   return this.deleteRange(from, to);
               let marks = this.storedMarks;
@@ -19867,7 +19935,7 @@
                   marks = to == from ? $from.marks() : $from.marksAcross(this.doc.resolve(to));
               }
               this.replaceRangeWith(from, to, schema.text(text, marks));
-              if (!this.selection.empty)
+              if (!this.selection.empty && this.selection.to == from + text.length)
                   this.setSelection(Selection.near(this.selection.$to));
               return this;
           }
@@ -20063,7 +20131,7 @@
           return newInstance;
       }
       /**
-      Start a [transaction](https://prosemirror.net/docs/ref/#state.Transaction) from this state.
+      Accessor that constructs and returns a new [transaction](https://prosemirror.net/docs/ref/#state.Transaction) from this state.
       */
       get tr() { return new Transaction(this); }
       /**
@@ -20257,6 +20325,7 @@
   };
   const atomElements = /^(img|br|input|textarea|hr)$/i;
   function scanFor(node, off, targetNode, targetOff, dir) {
+      var _a;
       for (;;) {
           if (node == targetNode && off == targetOff)
               return true;
@@ -20269,10 +20338,17 @@
               node = parent;
           }
           else if (node.nodeType == 1) {
-              node = node.childNodes[off + (dir < 0 ? -1 : 0)];
-              if (node.contentEditable == "false")
-                  return false;
-              off = dir < 0 ? nodeSize(node) : 0;
+              let child = node.childNodes[off + (dir < 0 ? -1 : 0)];
+              if (child.nodeType == 1 && child.contentEditable == "false") {
+                  if ((_a = child.pmViewDesc) === null || _a === void 0 ? void 0 : _a.ignoreForSelection)
+                      off += dir;
+                  else
+                      return false;
+              }
+              else {
+                  node = child;
+                  off = dir < 0 ? nodeSize(node) : 0;
+              }
           }
           else {
               return false;
@@ -20393,7 +20469,7 @@
   // Is true for both iOS and iPadOS for convenience
   const ios = safari && (/Mobile\/\w+/.test(agent) || !!nav && nav.maxTouchPoints > 2);
   const mac$4 = ios || (nav ? /Mac/.test(nav.platform) : false);
-  const windows = nav ? /Win/.test(nav.platform) : false;
+  const windows$1 = nav ? /Win/.test(nav.platform) : false;
   const android = /Android \d/.test(agent);
   const webkit = !!doc && "webkitFontSmoothing" in doc.documentElement.style;
   const webkit_version = webkit ? +(/\bAppleWebKit\/(\d+)/.exec(navigator.userAgent) || [0, 0])[1] : 0;
@@ -20628,7 +20704,7 @@
           if (desc.dom.nodeType == 1 && (desc.node.isBlock && desc.parent || !desc.contentDOM) &&
               // Ignore elements with zero-size bounding rectangles
               ((rect = desc.dom.getBoundingClientRect()).width || rect.height)) {
-              if (desc.node.isBlock && desc.parent) {
+              if (desc.node.isBlock && desc.parent && !/^T(R|BODY|HEAD|FOOT)$/.test(desc.dom.nodeName)) {
                   // Only apply the horizontal test to the innermost block. Vertical for any parent.
                   if (!sawBlock && rect.left > coords.left || rect.top > coords.top)
                       outsideBlock = desc.posBefore;
@@ -21286,7 +21362,7 @@
           // (one where the focus is before the anchor), but not all
           // browsers support it yet.
           let domSelExtended = false;
-          if ((domSel.extend || anchor == head) && !brKludge) {
+          if ((domSel.extend || anchor == head) && !(brKludge && gecko)) {
               domSel.collapse(anchorDOM.node, anchorDOM.offset);
               try {
                   if (anchor != head)
@@ -21356,6 +21432,7 @@
       }
       get domAtom() { return false; }
       get ignoreForCoords() { return false; }
+      get ignoreForSelection() { return false; }
       isText(text) { return false; }
   }
   // A widget desc represents a widget decoration, which is a DOM node
@@ -21400,6 +21477,7 @@
           super.destroy();
       }
       get domAtom() { return true; }
+      get ignoreForSelection() { return !!this.widget.type.spec.relaxedSide; }
       get side() { return this.widget.type.side; }
   }
   class CompositionViewDesc extends ViewDesc {
@@ -21696,17 +21774,18 @@
       }
       // Mark this node as being the selected node.
       selectNode() {
-          if (this.nodeDOM.nodeType == 1)
+          if (this.nodeDOM.nodeType == 1) {
               this.nodeDOM.classList.add("ProseMirror-selectednode");
-          if (this.contentDOM || !this.node.type.spec.draggable)
-              this.dom.draggable = true;
+              if (this.contentDOM || !this.node.type.spec.draggable)
+                  this.nodeDOM.draggable = true;
+          }
       }
       // Remove selected node marking from this node.
       deselectNode() {
           if (this.nodeDOM.nodeType == 1) {
               this.nodeDOM.classList.remove("ProseMirror-selectednode");
               if (this.contentDOM || !this.node.type.spec.draggable)
-                  this.dom.removeAttribute("draggable");
+                  this.nodeDOM.removeAttribute("draggable");
           }
       }
       get domAtom() { return this.node.isAtom; }
@@ -22545,17 +22624,14 @@
       });
   }
   function selectCursorWrapper(view) {
-      let domSel = view.domSelection(), range = document.createRange();
+      let domSel = view.domSelection();
       if (!domSel)
           return;
       let node = view.cursorWrapper.dom, img = node.nodeName == "IMG";
       if (img)
-          range.setStart(node.parentNode, domIndex(node) + 1);
+          domSel.collapse(node.parentNode, domIndex(node) + 1);
       else
-          range.setStart(node, 0);
-      range.collapse(true);
-      domSel.removeAllRanges();
-      domSel.addRange(range);
+          domSel.collapse(node, 0);
       // Kludge to kill 'control selection' in IE11 when selecting an
       // invisible cursor wrapper, since that would result in those weird
       // resize handles and a selection that considers the absolutely
@@ -22863,7 +22939,7 @@
   }
   function findDirection(view, pos) {
       let $pos = view.state.doc.resolve(pos);
-      if (!(chrome || windows) && $pos.parent.inlineContent) {
+      if (!(chrome || windows$1) && $pos.parent.inlineContent) {
           let coords = view.coordsAtPos(pos);
           if (pos > $pos.start()) {
               let before = view.coordsAtPos(pos - 1);
@@ -23033,11 +23109,14 @@
       let dom, slice;
       if (!html && !text)
           return null;
-      let asText = text && (plainText || inCode || !html);
+      let asText = !!text && (plainText || inCode || !html);
       if (asText) {
           view.someProp("transformPastedText", f => { text = f(text, inCode || plainText, view); });
-          if (inCode)
-              return text ? new Slice(Fragment.from(view.state.schema.text(text.replace(/\r\n?/g, "\n"))), 0, 0) : Slice.empty;
+          if (inCode) {
+              slice = new Slice(Fragment.from(view.state.schema.text(text.replace(/\r\n?/g, "\n"))), 0, 0);
+              view.someProp("transformPasted", f => { slice = f(slice, view, true); });
+              return slice;
+          }
           let parsed = view.someProp("clipboardTextParser", f => f(text, $context, plainText, view));
           if (parsed) {
               slice = parsed;
@@ -23095,7 +23174,7 @@
               slice = closeSlice(slice, openStart, openEnd);
           }
       }
-      view.someProp("transformPasted", f => { slice = f(slice, view); });
+      view.someProp("transformPasted", f => { slice = f(slice, view, asText); });
       return slice;
   }
   const inlineParents = /^(a|abbr|acronym|b|cite|code|del|em|i|ins|kbd|label|output|q|ruby|s|samp|span|strong|sub|sup|time|u|tt|var)$/i;
@@ -23269,7 +23348,7 @@
           this.mouseDown = null;
           this.lastKeyCode = null;
           this.lastKeyCodeTime = 0;
-          this.lastClick = { time: 0, x: 0, y: 0, type: "" };
+          this.lastClick = { time: 0, x: 0, y: 0, type: "", button: 0 };
           this.lastSelectionOrigin = null;
           this.lastSelectionTime = 0;
           this.lastIOSEnter = 0;
@@ -23397,8 +23476,9 @@
       let sel = view.state.selection;
       if (!(sel instanceof TextSelection) || !sel.$from.sameParent(sel.$to)) {
           let text = String.fromCharCode(event.charCode);
-          if (!/[\r\n]/.test(text) && !view.someProp("handleTextInput", f => f(view, sel.$from.pos, sel.$to.pos, text)))
-              view.dispatch(view.state.tr.insertText(text).scrollIntoView());
+          let deflt = () => view.state.tr.insertText(text).scrollIntoView();
+          if (!/[\r\n]/.test(text) && !view.someProp("handleTextInput", f => f(view, sel.$from.pos, sel.$to.pos, text, deflt)))
+              view.dispatch(deflt());
           event.preventDefault();
       }
   };
@@ -23511,13 +23591,14 @@
       view.input.shiftKey = event.shiftKey;
       let flushed = forceDOMFlush(view);
       let now = Date.now(), type = "singleClick";
-      if (now - view.input.lastClick.time < 500 && isNear(event, view.input.lastClick) && !event[selectNodeModifier]) {
+      if (now - view.input.lastClick.time < 500 && isNear(event, view.input.lastClick) && !event[selectNodeModifier] &&
+          view.input.lastClick.button == event.button) {
           if (view.input.lastClick.type == "singleClick")
               type = "doubleClick";
           else if (view.input.lastClick.type == "doubleClick")
               type = "tripleClick";
       }
-      view.input.lastClick = { time: now, x: event.clientX, y: event.clientY, type };
+      view.input.lastClick = { time: now, x: event.clientX, y: event.clientY, type, button: event.button };
       let pos = view.posAtCoords(eventCoords(event));
       if (!pos)
           return;
@@ -23556,7 +23637,7 @@
           }
           const target = flushed ? null : event.target;
           const targetDesc = target ? view.docView.nearestDesc(target, true) : null;
-          this.target = targetDesc && targetDesc.dom.nodeType == 1 ? targetDesc.dom : null;
+          this.target = targetDesc && targetDesc.nodeDOM.nodeType == 1 ? targetDesc.nodeDOM : null;
           let { selection } = view.state;
           if (event.button == 0 &&
               targetNode.type.spec.draggable && targetNode.type.spec.selectable !== false ||
@@ -23774,10 +23855,10 @@
       view.domObserver.forceFlush();
       clearComposition(view);
       if (restarting || view.docView && view.docView.dirty) {
-          let sel = selectionFromDOM(view);
-          if (sel && !sel.eq(view.state.selection))
+          let sel = selectionFromDOM(view), cur = view.state.selection;
+          if (sel && !sel.eq(cur))
               view.dispatch(view.state.tr.setSelection(sel));
-          else if ((view.markCursor || restarting) && !view.state.selection.empty)
+          else if ((view.markCursor || restarting) && !cur.$from.node(cur.$from.sharedDepth(cur.to)).inlineContent)
               view.dispatch(view.state.tr.deleteSelection());
           else
               view.updateState(view.state);
@@ -23953,7 +24034,7 @@
       let $mouse = view.state.doc.resolve(eventPos.pos);
       let slice = dragging && dragging.slice;
       if (slice) {
-          view.someProp("transformPasted", f => { slice = f(slice, view); });
+          view.someProp("transformPasted", f => { slice = f(slice, view, false); });
       }
       else {
           slice = parseFromClipboard(view, getText(event.dataTransfer), brokenClipboardAPI ? null : event.dataTransfer.getData("text/html"), false, $mouse);
@@ -25139,7 +25220,7 @@
       }
       return null;
   }
-  const isInline = /^(a|abbr|acronym|b|bd[io]|big|br|button|cite|code|data(list)?|del|dfn|em|i|ins|kbd|label|map|mark|meter|output|q|ruby|s|samp|small|span|strong|su[bp]|time|u|tt|var)$/i;
+  const isInline = /^(a|abbr|acronym|b|bd[io]|big|br|button|cite|code|data(list)?|del|dfn|em|i|img|ins|kbd|label|map|mark|meter|output|q|ruby|s|samp|small|span|strong|su[bp]|time|u|tt|var)$/i;
   function readDOMChange(view, from, to, typeOver, addedNodes) {
       let compositionID = view.input.compositionPendingChanges || (view.composing ? view.input.compositionID : 0);
       view.input.compositionPendingChanges = 0;
@@ -25238,16 +25319,13 @@
       let $to = parse.doc.resolveNoCache(change.endB - parse.from);
       let $fromA = doc.resolve(change.start);
       let inlineChange = $from.sameParent($to) && $from.parent.inlineContent && $fromA.end() >= change.endA;
-      let nextSel;
       // If this looks like the effect of pressing Enter (or was recorded
       // as being an iOS enter press), just dispatch an Enter key instead.
       if (((ios && view.input.lastIOSEnter > Date.now() - 225 &&
           (!inlineChange || addedNodes.some(n => n.nodeName == "DIV" || n.nodeName == "P"))) ||
           (!inlineChange && $from.pos < parse.doc.content.size &&
               (!$from.sameParent($to) || !$from.parent.inlineContent) &&
-              !/\S/.test(parse.doc.textBetween($from.pos, $to.pos, "", "")) &&
-              (nextSel = Selection.findFrom(parse.doc.resolve($from.pos + 1), 1, true)) &&
-              nextSel.head > $from.pos)) &&
+              $from.pos < $to.pos && !/\S/.test(parse.doc.textBetween($from.pos, $to.pos, "", "")))) &&
           view.someProp("handleKeyDown", f => f(view, keyEvent(13, "Enter")))) {
           view.input.lastIOSEnter = 0;
           return;
@@ -25282,7 +25360,26 @@
           }, 20);
       }
       let chFrom = change.start, chTo = change.endA;
-      let tr, storedMarks, markChange;
+      let mkTr = (base) => {
+          let tr = base || view.state.tr.replace(chFrom, chTo, parse.doc.slice(change.start - parse.from, change.endB - parse.from));
+          if (parse.sel) {
+              let sel = resolveSelection(view, tr.doc, parse.sel);
+              // Chrome will sometimes, during composition, report the
+              // selection in the wrong place. If it looks like that is
+              // happening, don't update the selection.
+              // Edge just doesn't move the cursor forward when you start typing
+              // in an empty block or between br nodes.
+              if (sel && !(chrome && view.composing && sel.empty &&
+                  (change.start != change.endB || view.input.lastChromeDelete < Date.now() - 100) &&
+                  (sel.head == chFrom || sel.head == tr.mapping.map(chTo) - 1) ||
+                  ie$1 && sel.empty && sel.head == chFrom))
+                  tr.setSelection(sel);
+          }
+          if (compositionID)
+              tr.setMeta("composition", compositionID);
+          return tr.scrollIntoView();
+      };
+      let markChange;
       if (inlineChange) {
           if ($from.pos == $to.pos) { // Deletion
               // IE11 sometimes weirdly moves the DOM selection around after
@@ -25291,46 +25388,36 @@
                   view.domObserver.suppressSelectionUpdates();
                   setTimeout(() => selectionToDOM(view), 20);
               }
-              tr = view.state.tr.delete(chFrom, chTo);
-              storedMarks = doc.resolve(change.start).marksAcross(doc.resolve(change.endA));
+              let tr = mkTr(view.state.tr.delete(chFrom, chTo));
+              let marks = doc.resolve(change.start).marksAcross(doc.resolve(change.endA));
+              if (marks)
+                  tr.ensureMarks(marks);
+              view.dispatch(tr);
           }
           else if ( // Adding or removing a mark
           change.endA == change.endB &&
               (markChange = isMarkChange($from.parent.content.cut($from.parentOffset, $to.parentOffset), $fromA.parent.content.cut($fromA.parentOffset, change.endA - $fromA.start())))) {
-              tr = view.state.tr;
+              let tr = mkTr(view.state.tr);
               if (markChange.type == "add")
                   tr.addMark(chFrom, chTo, markChange.mark);
               else
                   tr.removeMark(chFrom, chTo, markChange.mark);
+              view.dispatch(tr);
           }
           else if ($from.parent.child($from.index()).isText && $from.index() == $to.index() - ($to.textOffset ? 0 : 1)) {
               // Both positions in the same text node -- simply insert text
               let text = $from.parent.textBetween($from.parentOffset, $to.parentOffset);
-              if (view.someProp("handleTextInput", f => f(view, chFrom, chTo, text)))
-                  return;
-              tr = view.state.tr.insertText(text, chFrom, chTo);
+              let deflt = () => mkTr(view.state.tr.insertText(text, chFrom, chTo));
+              if (!view.someProp("handleTextInput", f => f(view, chFrom, chTo, text, deflt)))
+                  view.dispatch(deflt());
+          }
+          else {
+              view.dispatch(mkTr());
           }
       }
-      if (!tr)
-          tr = view.state.tr.replace(chFrom, chTo, parse.doc.slice(change.start - parse.from, change.endB - parse.from));
-      if (parse.sel) {
-          let sel = resolveSelection(view, tr.doc, parse.sel);
-          // Chrome will sometimes, during composition, report the
-          // selection in the wrong place. If it looks like that is
-          // happening, don't update the selection.
-          // Edge just doesn't move the cursor forward when you start typing
-          // in an empty block or between br nodes.
-          if (sel && !(chrome && view.composing && sel.empty &&
-              (change.start != change.endB || view.input.lastChromeDelete < Date.now() - 100) &&
-              (sel.head == chFrom || sel.head == tr.mapping.map(chTo) - 1) ||
-              ie$1 && sel.empty && sel.head == chFrom))
-              tr.setSelection(sel);
+      else {
+          view.dispatch(mkTr());
       }
-      if (storedMarks)
-          tr.ensureMarks(storedMarks);
-      if (compositionID)
-          tr.setMeta("composition", compositionID);
-      view.dispatch(tr.scrollIntoView());
   }
   function resolveSelection(view, doc, parsedSel) {
       if (Math.max(parsedSel.anchor, parsedSel.head) > doc.content.size)
@@ -25924,22 +26011,6 @@
           return dispatchEvent(this, event);
       }
       /**
-      Dispatch a transaction. Will call
-      [`dispatchTransaction`](https://prosemirror.net/docs/ref/#view.DirectEditorProps.dispatchTransaction)
-      when given, and otherwise defaults to applying the transaction to
-      the current state and calling
-      [`updateState`](https://prosemirror.net/docs/ref/#view.EditorView.updateState) with the result.
-      This method is bound to the view instance, so that it can be
-      easily passed around.
-      */
-      dispatch(tr) {
-          let dispatchTransaction = this._props.dispatchTransaction;
-          if (dispatchTransaction)
-              dispatchTransaction.call(this, tr);
-          else
-              this.updateState(this.state.apply(tr));
-      }
-      /**
       @internal
       */
       domSelectionRange() {
@@ -25956,6 +26027,13 @@
           return this.root.getSelection();
       }
   }
+  EditorView.prototype.dispatch = function (tr) {
+      let dispatchTransaction = this._props.dispatchTransaction;
+      if (dispatchTransaction)
+          dispatchTransaction.call(this, tr);
+      else
+          this.updateState(this.state.apply(tr));
+  };
   function computeDocDeco(view) {
       let attrs = Object.create(null);
       attrs.class = "ProseMirror";
@@ -26041,14 +26119,12 @@
    * a === b // values match
    * ```
    *
+   * @template {string} T
    * @typedef {Object} SimpleDiff
    * @property {Number} index The index where changes were applied
    * @property {Number} remove The number of characters to delete starting
    *                                  at `index`.
    * @property {T} insert The new text to insert at `index` after applying
-   *                           `delete`
-   *
-   * @template T
    */
 
   const highSurrogateRegex = /[\uD800-\uDBFF]/;
@@ -28280,7 +28356,8 @@
     return name
   }
 
-  const mac$2 = typeof navigator != "undefined" ? /Mac|iP(hone|[oa]d)/.test(navigator.platform) : false;
+  const mac$2 = typeof navigator != "undefined" && /Mac|iP(hone|[oa]d)/.test(navigator.platform);
+  const windows = typeof navigator != "undefined" && /Win/.test(navigator.platform);
   function normalizeKeyName(name) {
       let parts = name.split(/-(?!$)/), result = parts[parts.length - 1];
       if (result == "Space")
@@ -28386,12 +28463,14 @@
                   if (noShift && noShift(view.state, view.dispatch, view))
                       return true;
               }
-              if ((event.shiftKey || event.altKey || event.metaKey || name.charCodeAt(0) > 127) &&
+              if ((event.altKey || event.metaKey || event.ctrlKey) &&
+                  // Ctrl-Alt may be used for AltGr on Windows
+                  !(windows && event.ctrlKey && event.altKey) &&
                   (baseName = base[event.keyCode]) && baseName != name) {
                   // Try falling back to the keyCode when there's a modifier
                   // active or the character produced isn't ASCII, and our table
                   // produces a different name from the the keyCode. See #668,
-                  // #1060
+                  // #1060, #1529.
                   let fromCode = map[modifiers(baseName, event)];
                   if (fromCode && fromCode(view.state, view.dispatch, view))
                       return true;
@@ -28985,7 +29064,7 @@
                   beforeinput(view, e) {
                       let inputType = e.inputType;
                       let command = inputType == "historyUndo" ? undo : inputType == "historyRedo" ? redo : null;
-                      if (!command)
+                      if (!command || !view.editable)
                           return false;
                       e.preventDefault();
                       return command(view.state, view.dispatch);
@@ -29399,6 +29478,8 @@
               types[0] = deflt ? { type: deflt } : null;
               can = canSplit(tr.doc, splitPos, types.length, types);
           }
+          if (!can)
+              return false;
           tr.split(splitPos, types.length, types);
           if (!atEnd && atStart && $from.node(splitDepth).type != deflt) {
               let first = tr.mapping.map($from.before(splitDepth)), $first = tr.doc.resolve(first);
@@ -29625,6 +29706,7 @@
   function toggleMark(markType, attrs = null, options) {
       let removeWhenPresent = (options && options.removeWhenPresent) !== false;
       let enterAtoms = (options && options.enterInlineAtoms) !== false;
+      let dropSpace = !(options && options.includeWhitespace);
       return function (state, dispatch) {
           let { empty, $cursor, ranges } = state.selection;
           if ((empty && !$cursor) || !markApplies(state.doc, ranges, markType, enterAtoms))
@@ -29662,8 +29744,8 @@
                       }
                       else {
                           let from = $from.pos, to = $to.pos, start = $from.nodeAfter, end = $to.nodeBefore;
-                          let spaceStart = start && start.isText ? /^\s*/.exec(start.text)[0].length : 0;
-                          let spaceEnd = end && end.isText ? /\s*$/.exec(end.text)[0].length : 0;
+                          let spaceStart = dropSpace && start && start.isText ? /^\s*/.exec(start.text)[0].length : 0;
+                          let spaceEnd = dropSpace && end && end.isText ? /\s*$/.exec(end.text)[0].length : 0;
                           if (from + spaceStart < to) {
                               from += spaceStart;
                               to -= spaceEnd;
@@ -29798,6 +29880,8 @@
       updateOverlay() {
           let $pos = this.editorView.state.doc.resolve(this.cursorPos);
           let isBlock = !$pos.parent.inlineContent, rect;
+          let editorDOM = this.editorView.dom, editorRect = editorDOM.getBoundingClientRect();
+          let scaleX = editorRect.width / editorDOM.offsetWidth, scaleY = editorRect.height / editorDOM.offsetHeight;
           if (isBlock) {
               let before = $pos.nodeBefore, after = $pos.nodeAfter;
               if (before || after) {
@@ -29807,13 +29891,15 @@
                       let top = before ? nodeRect.bottom : nodeRect.top;
                       if (before && after)
                           top = (top + this.editorView.nodeDOM(this.cursorPos).getBoundingClientRect().top) / 2;
-                      rect = { left: nodeRect.left, right: nodeRect.right, top: top - this.width / 2, bottom: top + this.width / 2 };
+                      let halfWidth = (this.width / 2) * scaleY;
+                      rect = { left: nodeRect.left, right: nodeRect.right, top: top - halfWidth, bottom: top + halfWidth };
                   }
               }
           }
           if (!rect) {
               let coords = this.editorView.coordsAtPos(this.cursorPos);
-              rect = { left: coords.left - this.width / 2, right: coords.left + this.width / 2, top: coords.top, bottom: coords.bottom };
+              let halfWidth = (this.width / 2) * scaleX;
+              rect = { left: coords.left - halfWidth, right: coords.left + halfWidth, top: coords.top, bottom: coords.bottom };
           }
           let parent = this.editorView.dom.offsetParent;
           if (!this.element) {
@@ -29834,13 +29920,14 @@
           }
           else {
               let rect = parent.getBoundingClientRect();
-              parentLeft = rect.left - parent.scrollLeft;
-              parentTop = rect.top - parent.scrollTop;
+              let parentScaleX = rect.width / parent.offsetWidth, parentScaleY = rect.height / parent.offsetHeight;
+              parentLeft = rect.left - parent.scrollLeft * parentScaleX;
+              parentTop = rect.top - parent.scrollTop * parentScaleY;
           }
-          this.element.style.left = (rect.left - parentLeft) + "px";
-          this.element.style.top = (rect.top - parentTop) + "px";
-          this.element.style.width = (rect.right - rect.left) + "px";
-          this.element.style.height = (rect.bottom - rect.top) + "px";
+          this.element.style.left = (rect.left - parentLeft) / scaleX + "px";
+          this.element.style.top = (rect.top - parentTop) / scaleY + "px";
+          this.element.style.width = (rect.right - rect.left) / scaleX + "px";
+          this.element.style.height = (rect.bottom - rect.top) / scaleY + "px";
       }
       scheduleRemoval(timeout) {
           clearTimeout(this.timeout);
@@ -29852,7 +29939,9 @@
           let pos = this.editorView.posAtCoords({ left: event.clientX, top: event.clientY });
           let node = pos && pos.inside >= 0 && this.editorView.state.doc.nodeAt(pos.inside);
           let disableDropCursor = node && node.type.spec.disableDropCursor;
-          let disabled = typeof disableDropCursor == "function" ? disableDropCursor(this.editorView, pos, event) : disableDropCursor;
+          let disabled = typeof disableDropCursor == "function"
+              ? disableDropCursor(this.editorView, pos, event)
+              : disableDropCursor;
           if (pos && !disabled) {
               let target = pos.pos;
               if (this.editorView.dragging && this.editorView.dragging.slice) {
@@ -29871,7 +29960,7 @@
           this.scheduleRemoval(20);
       }
       dragleave(event) {
-          if (event.target == this.editorView.dom || !this.editorView.dom.contains(event.relatedTarget))
+          if (!this.editorView.dom.contains(event.relatedTarget))
               this.setCursor(null);
       }
   }
@@ -29982,6 +30071,9 @@
           return GapCursor.valid($pos) ? new GapCursor($pos) : Selection.near($pos);
       }
   }
+  function needsGap(type) {
+      return type.isAtom || type.spec.isolating || type.spec.createGapCursor;
+  }
   function closedBefore($pos) {
       for (let d = $pos.depth; d >= 0; d--) {
           let index = $pos.index(d), parent = $pos.node(d);
@@ -29993,7 +30085,7 @@
           }
           // See if the node before (or its first ancestor) is closed
           for (let before = parent.child(index - 1);; before = before.lastChild) {
-              if ((before.childCount == 0 && !before.inlineContent) || before.isAtom || before.type.spec.isolating)
+              if ((before.childCount == 0 && !before.inlineContent) || needsGap(before.type))
                   return true;
               if (before.inlineContent)
                   return false;
@@ -30011,7 +30103,7 @@
               continue;
           }
           for (let after = parent.child(index);; after = after.firstChild) {
-              if ((after.childCount == 0 && !after.inlineContent) || after.isAtom || after.type.spec.isolating)
+              if ((after.childCount == 0 && !after.inlineContent) || needsGap(after.type))
                   return true;
               if (after.inlineContent)
                   return false;
@@ -30615,6 +30707,7 @@
           this.widthForMaxHeight = 0;
           this.floating = false;
           this.scrollHandler = null;
+          this.root = editorView.root;
           this.wrapper = crelt("div", { class: prefix$3 + "-wrapper" });
           this.menu = this.wrapper.appendChild(crelt("div", { class: prefix$3 }));
           this.menu.className = prefix$3;
@@ -30639,6 +30732,12 @@
           }
       }
       update() {
+          if (this.editorView.root != this.root) {
+              let { dom, update } = renderGrouped(this.editorView, this.options.content);
+              this.contentUpdate = update;
+              this.menu.replaceChild(dom, this.menu.firstChild);
+              this.root = this.editorView.root;
+          }
           this.contentUpdate(this.editorView.state);
           if (this.floating) {
               this.updateScrollCursor();
@@ -30877,9 +30976,9 @@
       if (target == null)
           return false;
       tr.lift(range, target);
-      let after = tr.mapping.map(end, -1) - 1;
-      if (canJoin(tr.doc, after))
-          tr.join(after);
+      let $after = tr.doc.resolve(tr.mapping.map(end, -1) - 1);
+      if (canJoin(tr.doc, $after.pos) && $after.nodeBefore.type == $after.nodeAfter.type)
+          tr.join($after.pos);
       dispatch(tr.scrollIntoView());
       return true;
   }
@@ -30941,7 +31040,6 @@
   with `"> "` into a blockquote, or something entirely different.
   */
   class InputRule {
-      // :: (RegExp, union<string, (state: EditorState, match: [string], start: number, end: number) → ?Transaction>)
       /**
       Create an input rule. The rule applies when the user typed
       something and the text directly in front of the cursor matches
@@ -30968,6 +31066,7 @@
           this.handler = typeof handler == "string" ? stringHandler(handler) : handler;
           this.undoable = options.undoable !== false;
           this.inCode = options.inCode || false;
+          this.inCodeMark = options.inCodeMark !== false;
       }
   }
   function stringHandler(string) {
@@ -31028,6 +31127,8 @@
       let textBefore = $from.parent.textBetween(Math.max(0, $from.parentOffset - MAX_MATCH), $from.parentOffset, null, "\ufffc") + text;
       for (let i = 0; i < rules.length; i++) {
           let rule = rules[i];
+          if (!rule.inCodeMark && $from.marks().some(m => m.type.spec.code))
+              continue;
           if ($from.parent.type.spec.code) {
               if (!rule.inCode)
                   continue;
@@ -31036,7 +31137,19 @@
               continue;
           }
           let match = rule.match.exec(textBefore);
-          let tr = match && rule.handler(state, match, from - (match[0].length - text.length), to);
+          if (!match || match[0].length < text.length)
+              continue;
+          let startPos = from - (match[0].length - text.length);
+          if (!rule.inCodeMark) {
+              let hasMark = false;
+              state.doc.nodesBetween(startPos, $from.pos, node => {
+                  if (node.isInline && node.marks.some(m => m.type.spec.code))
+                      hasMark = true;
+              });
+              if (hasMark)
+                  continue;
+          }
+          let tr = rule.handler(state, match, startPos, to);
           if (!tr)
               continue;
           if (rule.undoable)
@@ -31077,27 +31190,27 @@
   /**
   Converts double dashes to an emdash.
   */
-  const emDash = new InputRule(/--$/, "—");
+  const emDash = new InputRule(/--$/, "—", { inCodeMark: false });
   /**
   Converts three dots to an ellipsis character.
   */
-  const ellipsis = new InputRule(/\.\.\.$/, "…");
+  const ellipsis = new InputRule(/\.\.\.$/, "…", { inCodeMark: false });
   /**
   “Smart” opening double quotes.
   */
-  const openDoubleQuote = new InputRule(/(?:^|[\s\{\[\(\<'"\u2018\u201C])(")$/, "“");
+  const openDoubleQuote = new InputRule(/(?:^|[\s\{\[\(\<'"\u2018\u201C])(")$/, "“", { inCodeMark: false });
   /**
   “Smart” closing double quotes.
   */
-  const closeDoubleQuote = new InputRule(/"$/, "”");
+  const closeDoubleQuote = new InputRule(/"$/, "”", { inCodeMark: false });
   /**
   “Smart” opening single quotes.
   */
-  const openSingleQuote = new InputRule(/(?:^|[\s\{\[\(\<'"\u2018\u201C])(')$/, "‘");
+  const openSingleQuote = new InputRule(/(?:^|[\s\{\[\(\<'"\u2018\u201C])(')$/, "‘", { inCodeMark: false });
   /**
   “Smart” closing single quotes.
   */
-  const closeSingleQuote = new InputRule(/'$/, "’");
+  const closeSingleQuote = new InputRule(/'$/, "’", { inCodeMark: false });
   /**
   Smart-quote related input rules.
   */
