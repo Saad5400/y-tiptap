@@ -27723,21 +27723,20 @@
           // - Otherwise: use snapshot
           let attrs;
 
-          // DEBUG logging for removed elements
-          if (isRemoved) {
+          // DEBUG logging for ALL elements when snapshots are present
+          if (snapshot !== undefined && prevSnapshot !== undefined) {
+              const visibleInSnapshot = isVisible(/** @type {Y.Item} */ (el._item), snapshot);
+              const visibleInPrevSnapshot = isVisible(/** @type {Y.Item} */ (el._item), prevSnapshot);
               console.log('[y-tiptap DEBUG] ================');
               console.log('[y-tiptap DEBUG] Element:', el.nodeName);
-              console.log('[y-tiptap DEBUG] isRemoved:', isRemoved);
-              console.log('[y-tiptap DEBUG] existedInPrev:', existedInPrev);
+              console.log('[y-tiptap DEBUG] el._item.deleted:', el._item?.deleted);
+              console.log('[y-tiptap DEBUG] visibleInSnapshot:', visibleInSnapshot);
+              console.log('[y-tiptap DEBUG] visibleInPrevSnapshot:', visibleInPrevSnapshot);
+              console.log('[y-tiptap DEBUG] isRemoved (calculated):', isRemoved);
+              console.log('[y-tiptap DEBUG] existedInPrev (calculated):', existedInPrev);
               console.log('[y-tiptap DEBUG] el.getAttributes():', JSON.stringify(el.getAttributes()));
               console.log('[y-tiptap DEBUG] el.getAttributes(prevSnapshot):', JSON.stringify(el.getAttributes(prevSnapshot)));
               console.log('[y-tiptap DEBUG] el.getAttributes(snapshot):', JSON.stringify(el.getAttributes(snapshot)));
-              console.log('[y-tiptap DEBUG] el._map keys:', el._map ? Array.from(el._map.keys()) : 'no _map');
-              if (el._map) {
-                  el._map.forEach((item, key) => {
-                      console.log(`[y-tiptap DEBUG] _map[${key}]:`, item?.content?.getContent?.() || 'no content');
-                  });
-              }
               console.log('[y-tiptap DEBUG] ================');
           }
 
