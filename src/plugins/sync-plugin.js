@@ -634,6 +634,14 @@ export const createNodeFromYElement = (el, schema, meta, snapshot, prevSnapshot,
         // For removed items, get attributes from prevSnapshot where they existed
         // For added or unchanged items, get attributes from snapshot (current state)
         const attrs = el.getAttributes(isRemoved ? prevSnapshot : snapshot)
+        // DEBUG: Log attribute retrieval for removed elements
+        if (isRemoved) {
+            console.log('[DEBUG] Removed element:', el.nodeName)
+            console.log('[DEBUG] isRemoved:', isRemoved)
+            console.log('[DEBUG] attrs from prevSnapshot:', JSON.stringify(attrs))
+            console.log('[DEBUG] attrs from snapshot:', JSON.stringify(el.getAttributes(snapshot)))
+            console.log('[DEBUG] el._map keys:', Array.from(el._map?.keys?.() || []))
+        }
         if (snapshot !== undefined) {
             if (isRemoved) {
                 attrs.ychange = computeYChange ? computeYChange('removed', /** @type {Y.Item} */ (el._item).id) : {type: 'removed'}
