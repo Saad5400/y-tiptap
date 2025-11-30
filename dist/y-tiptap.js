@@ -685,6 +685,25 @@ const createNodeFromYElement = (el, schema, meta, snapshot, prevSnapshot, comput
         // - If removed but didn't exist in prevSnapshot (added then removed): use no snapshot (current doc state)
         // - Otherwise: use snapshot
         let attrs;
+
+        // DEBUG logging for removed elements
+        if (isRemoved) {
+            console.log('[y-tiptap DEBUG] ================');
+            console.log('[y-tiptap DEBUG] Element:', el.nodeName);
+            console.log('[y-tiptap DEBUG] isRemoved:', isRemoved);
+            console.log('[y-tiptap DEBUG] existedInPrev:', existedInPrev);
+            console.log('[y-tiptap DEBUG] el.getAttributes():', JSON.stringify(el.getAttributes()));
+            console.log('[y-tiptap DEBUG] el.getAttributes(prevSnapshot):', JSON.stringify(el.getAttributes(prevSnapshot)));
+            console.log('[y-tiptap DEBUG] el.getAttributes(snapshot):', JSON.stringify(el.getAttributes(snapshot)));
+            console.log('[y-tiptap DEBUG] el._map keys:', el._map ? Array.from(el._map.keys()) : 'no _map');
+            if (el._map) {
+                el._map.forEach((item, key) => {
+                    console.log(`[y-tiptap DEBUG] _map[${key}]:`, item?.content?.getContent?.() || 'no content');
+                });
+            }
+            console.log('[y-tiptap DEBUG] ================');
+        }
+
         if (isRemoved) {
             if (existedInPrev) {
                 // Element existed in prevSnapshot, get attributes from there
