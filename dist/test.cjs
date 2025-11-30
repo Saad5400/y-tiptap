@@ -11624,24 +11624,6 @@ const createNodeFromYElement = (el, schema, meta, snapshot, prevSnapshot, comput
         // - If removed but didn't exist in prevSnapshot (added then removed): use no snapshot (current doc state)
         // - Otherwise: use snapshot
         let attrs;
-
-        // DEBUG logging for ALL elements when snapshots are present
-        if (snapshot !== undefined && prevSnapshot !== undefined) {
-            const visibleInSnapshot = isVisible(/** @type {Y.Item} */ (el._item), snapshot);
-            const visibleInPrevSnapshot = isVisible(/** @type {Y.Item} */ (el._item), prevSnapshot);
-            console.log('[y-tiptap DEBUG] ================');
-            console.log('[y-tiptap DEBUG] Element:', el.nodeName);
-            console.log('[y-tiptap DEBUG] el._item.deleted:', el._item?.deleted);
-            console.log('[y-tiptap DEBUG] visibleInSnapshot:', visibleInSnapshot);
-            console.log('[y-tiptap DEBUG] visibleInPrevSnapshot:', visibleInPrevSnapshot);
-            console.log('[y-tiptap DEBUG] isRemoved (calculated):', isRemoved);
-            console.log('[y-tiptap DEBUG] existedInPrev (calculated):', existedInPrev);
-            console.log('[y-tiptap DEBUG] el.getAttributes():', JSON.stringify(el.getAttributes()));
-            console.log('[y-tiptap DEBUG] el.getAttributes(prevSnapshot):', JSON.stringify(el.getAttributes(prevSnapshot)));
-            console.log('[y-tiptap DEBUG] el.getAttributes(snapshot):', JSON.stringify(el.getAttributes(snapshot)));
-            console.log('[y-tiptap DEBUG] ================');
-        }
-
         if (isRemoved) {
             if (existedInPrev) {
                 // Element existed in prevSnapshot, get attributes from there
