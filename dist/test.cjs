@@ -11388,7 +11388,11 @@ class ProsemirrorBinding {
     unrenderSnapshot() {
         this.mapping.clear();
         this.mux(() => {
-            const fragmentContent = this.type.toArray().map((t) => createNodeFromYElement(/** @type {Y.XmlElement} */ (t), this.prosemirrorView.state.schema, this)).filter((n) => n !== null);
+            const fragmentContent = this.type.toArray().flatMap((t) => {
+                const result = createNodeFromYElement(/** @type {Y.XmlElement} */ (t), this.prosemirrorView.state.schema, this);
+                if (result === null) return []
+                return Array.isArray(result) ? result : [result]
+            });
             // @ts-ignore
             const tr = this._tr.replace(0, this.prosemirrorView.state.doc.content.size, new PModel__namespace.Slice(PModel__namespace.Fragment.from(fragmentContent), 0, 0));
             tr.setMeta(ySyncPluginKey, {snapshot: null, prevSnapshot: null});
@@ -11403,7 +11407,11 @@ class ProsemirrorBinding {
             // transaction. Then the "before selection" doesn't exist. In this case, we need to create a
             // relative position before replacing content. Fixes #126
             const sel = this.beforeTransactionSelection !== null ? null : this.prosemirrorView.state.selection;
-            const fragmentContent = this.type.toArray().map((t) => createNodeFromYElement(/** @type {Y.XmlElement} */ (t), this.prosemirrorView.state.schema, this)).filter((n) => n !== null);
+            const fragmentContent = this.type.toArray().flatMap((t) => {
+                const result = createNodeFromYElement(/** @type {Y.XmlElement} */ (t), this.prosemirrorView.state.schema, this);
+                if (result === null) return []
+                return Array.isArray(result) ? result : [result]
+            });
             // @ts-ignore
             const tr = this._tr.replace(0, this.prosemirrorView.state.doc.content.size, new PModel__namespace.Slice(PModel__namespace.Fragment.from(fragmentContent), 0, 0));
             if (sel) {
@@ -11491,18 +11499,21 @@ class ProsemirrorBinding {
                     }
                 };
                 // Create document fragment and render
-                const fragmentContent = typeListToArraySnapshot(historyType, new Snapshot(prevSnapshot.ds, snapshot$1.sv)).map((t) => {
+                const fragmentContent = typeListToArraySnapshot(historyType, new Snapshot(prevSnapshot.ds, snapshot$1.sv)).flatMap((t) => {
                     if (!t._item.deleted || isVisible(t._item, snapshot$1) || isVisible(t._item, prevSnapshot)) {
-                        return createNodeFromYElement(t, this.prosemirrorView.state.schema, {
+                        const result = createNodeFromYElement(t, this.prosemirrorView.state.schema, {
                             mapping: new Map(),
                             isOMark: new Map()
-                        }, snapshot$1, prevSnapshot, computeYChange)
+                        }, snapshot$1, prevSnapshot, computeYChange);
+                        // Handle both single nodes and arrays (from attribute changes)
+                        if (result === null) return []
+                        return Array.isArray(result) ? result : [result]
                     } else {
                         // No need to render elements that are not visible by either snapshot.
                         // If a client adds and deletes content in the same snapshot the element is not visible by either snapshot.
-                        return null
+                        return []
                     }
-                }).filter((n) => n !== null);
+                });
                 // @ts-ignore
                 const tr = this._tr.replace(0, this.prosemirrorView.state.doc.content.size, new PModel__namespace.Slice(PModel__namespace.Fragment.from(fragmentContent), 0, 0));
                 this.prosemirrorView.dispatch(tr.setMeta(ySyncPluginKey, {isChangeOrigin: true}));
@@ -11536,7 +11547,11 @@ class ProsemirrorBinding {
             });
             transaction.changed.forEach(delType);
             transaction.changedParentTypes.forEach(delType);
-            const fragmentContent = this.type.toArray().map((t) => createNodeIfNotExists(/** @type {Y.XmlElement | Y.XmlHook} */ (t), this.prosemirrorView.state.schema, this)).filter((n) => n !== null);
+            const fragmentContent = this.type.toArray().flatMap((t) => {
+                const result = createNodeIfNotExists(/** @type {Y.XmlElement | Y.XmlHook} */ (t), this.prosemirrorView.state.schema, this);
+                if (result === null) return []
+                return Array.isArray(result) ? result : [result]
+            });
             // @ts-ignore
             let tr = this._tr.replace(0, this.prosemirrorView.state.doc.content.size, new PModel__namespace.Slice(PModel__namespace.Fragment.from(fragmentContent), 0, 0));
             restoreRelativeSelection(tr, this.beforeTransactionSelection, this);
@@ -11589,7 +11604,7 @@ class ProsemirrorBinding {
  * @param {Y.Snapshot} [snapshot]
  * @param {Y.Snapshot} [prevSnapshot]
  * @param {function('removed' | 'added', Y.ID):any} [computeYChange]
- * @return {PModel.Node | null}
+ * @return {PModel.Node | Array<PModel.Node> | null}
  */
 const createNodeIfNotExists = (el, schema, meta, snapshot, prevSnapshot, computeYChange) => {
     const node = /** @type {PModel.Node} */ (meta.mapping.get(el));
@@ -11611,7 +11626,7 @@ const createNodeIfNotExists = (el, schema, meta, snapshot, prevSnapshot, compute
  * @param {Y.Snapshot} [snapshot]
  * @param {Y.Snapshot} [prevSnapshot]
  * @param {function('removed' | 'added', Y.ID):any} [computeYChange]
- * @return {PModel.Node | null} Returns node if node could be created. Otherwise it deletes the yjs type and returns null
+ * @return {PModel.Node | Array<PModel.Node> | null} Returns node(s) if node could be created. Returns array when attribute changes are detected. Otherwise it deletes the yjs type and returns null
  */
 const createNodeFromYElement = (el, schema, meta, snapshot, prevSnapshot, computeYChange) => {
     const children = [];
@@ -11619,6 +11634,8 @@ const createNodeFromYElement = (el, schema, meta, snapshot, prevSnapshot, comput
     const isRemoved = snapshot !== undefined && prevSnapshot !== undefined && !isVisible(/** @type {Y.Item} */ (el._item), snapshot);
     // Check if element existed in prevSnapshot
     const existedInPrev = prevSnapshot !== undefined && isVisible(/** @type {Y.Item} */ (el._item), prevSnapshot);
+    // Check if this element is newly added (not visible in prevSnapshot)
+    const isAdded = snapshot !== undefined && prevSnapshot !== undefined && !isVisible(/** @type {Y.Item} */ (el._item), prevSnapshot);
     /**
      * @param {Y.XmlElement | Y.XmlText} type
      */
@@ -11626,7 +11643,12 @@ const createNodeFromYElement = (el, schema, meta, snapshot, prevSnapshot, comput
         if (type instanceof YXmlElement) {
             const n = createNodeIfNotExists(type, schema, meta, snapshot, prevSnapshot, computeYChange);
             if (n !== null) {
-                children.push(n);
+                // Handle array results from attribute changes
+                if (Array.isArray(n)) {
+                    n.forEach(node => children.push(node));
+                } else {
+                    children.push(n);
+                }
             }
         } else {
             // If the next ytext exists and was created by us, move the content to the current ytext.
@@ -11686,6 +11708,26 @@ const createNodeFromYElement = (el, schema, meta, snapshot, prevSnapshot, comput
         } else {
             attrs = el.getAttributes(snapshot);
         }
+        
+        // Check for attribute changes when element exists in both snapshots
+        if (snapshot !== undefined && prevSnapshot !== undefined && !isRemoved && !isAdded && existedInPrev) {
+            const prevAttrs = el.getAttributes(prevSnapshot);
+            const currAttrs = el.getAttributes(snapshot);
+            
+            // Compare attributes (excluding ychange)
+            if (!equalAttrs(prevAttrs, currAttrs)) {
+                // Attributes changed - create TWO nodes: one removed (old attrs), one added (new attrs)
+                const removedYchange = computeYChange ? computeYChange('removed', /** @type {Y.Item} */ (el._item).id) : {type: 'removed'};
+                const addedYchange = computeYChange ? computeYChange('added', /** @type {Y.Item} */ (el._item).id) : {type: 'added'};
+                
+                const removedNode = schema.node(el.nodeName, {...prevAttrs, ychange: removedYchange}, children);
+                const addedNode = schema.node(el.nodeName, {...currAttrs, ychange: addedYchange}, children);
+                
+                // Don't set mapping for either since we're creating duplicates
+                return [removedNode, addedNode]
+            }
+        }
+        
         if (snapshot !== undefined) {
             if (isRemoved) {
                 attrs.ychange = computeYChange ? computeYChange('removed', /** @type {Y.Item} */ (el._item).id) : {type: 'removed'};
@@ -11707,6 +11749,43 @@ const createNodeFromYElement = (el, schema, meta, snapshot, prevSnapshot, comput
 };
 
 /**
+ * Compare two sets of attributes (excluding ychange) for equality
+ * @param {Object<string, any>} attrs1
+ * @param {Object<string, any>} attrs2
+ * @return {boolean}
+ */
+const equalTextAttrs = (attrs1, attrs2) => {
+    const keys1 = Object.keys(attrs1 || {}).filter(k => k !== 'ychange');
+    const keys2 = Object.keys(attrs2 || {}).filter(k => k !== 'ychange');
+    if (keys1.length !== keys2.length) return false
+    for (const key of keys1) {
+        const v1 = attrs1[key];
+        const v2 = attrs2[key];
+        if (v1 !== v2 && !(isObject(v1) && isObject(v2) && equalAttrs(v1, v2))) {
+            return false
+        }
+    }
+    return true
+};
+
+/**
+ * Normalize deltas to character-level for comparison
+ * @param {Array<{insert: string, attributes?: Object}>} deltas
+ * @return {Array<{char: string, attributes: Object}>}
+ */
+const normalizeDeltas = (deltas) => {
+    const result = [];
+    for (const delta of deltas) {
+        const text = delta.insert;
+        const attrs = delta.attributes || {};
+        for (const char of text) {
+            result.push({ char, attributes: attrs });
+        }
+    }
+    return result
+};
+
+/**
  * @private
  * @param {Y.XmlText} text
  * @param {import('prosemirror-model').Schema} schema
@@ -11723,6 +11802,8 @@ const createTextNodesFromYText = (text, schema, _meta, snapshot, prevSnapshot, c
         !isVisible(/** @type {Y.Item} */ (text._item), snapshot);
     const existedInPrev = prevSnapshot !== undefined &&
         isVisible(/** @type {Y.Item} */ (text._item), prevSnapshot);
+    const isTextAdded = snapshot !== undefined && prevSnapshot !== undefined &&
+        !isVisible(/** @type {Y.Item} */ (text._item), prevSnapshot);
 
     // Determine which snapshot to use for delta:
     // - If removed and existed in prevSnapshot: use prevSnapshot
@@ -11741,6 +11822,51 @@ const createTextNodesFromYText = (text, schema, _meta, snapshot, prevSnapshot, c
     }
 
     try {
+        // Handle formatting changes when text exists in both snapshots
+        if (snapshot !== undefined && prevSnapshot !== undefined && !isTextRemoved && !isTextAdded && existedInPrev) {
+            // Get deltas from both snapshots separately (without diff)
+            const prevDeltas = text.toDelta(prevSnapshot, undefined, undefined);
+            const currDeltas = text.toDelta(snapshot, undefined, undefined);
+            
+            // Normalize to character level for comparison
+            const prevChars = normalizeDeltas(prevDeltas);
+            const currChars = normalizeDeltas(currDeltas);
+            
+            // Check if text content is the same but formatting differs
+            const prevText = prevChars.map(c => c.char).join('');
+            const currText = currChars.map(c => c.char).join('');
+            
+            if (prevText === currText && prevText.length > 0) {
+                // Same text content - check for formatting differences
+                let hasFormattingChanges = false;
+                for (let i = 0; i < prevChars.length; i++) {
+                    if (!equalTextAttrs(prevChars[i].attributes, currChars[i].attributes)) {
+                        hasFormattingChanges = true;
+                        break
+                    }
+                }
+                
+                if (hasFormattingChanges) {
+                    // Create nodes for removed formatting (old state)
+                    const removedYchange = computeYChange ? computeYChange('removed', /** @type {Y.Item} */ (text._item).id) : {type: 'removed'};
+                    for (const delta of prevDeltas) {
+                        const attrs = {...(delta.attributes || {}), ychange: removedYchange};
+                        nodes.push(schema.text(delta.insert, attributesToMarks(attrs, schema)));
+                    }
+                    
+                    // Create nodes for added formatting (new state)
+                    const addedYchange = computeYChange ? computeYChange('added', /** @type {Y.Item} */ (text._item).id) : {type: 'added'};
+                    for (const delta of currDeltas) {
+                        const attrs = {...(delta.attributes || {}), ychange: addedYchange};
+                        nodes.push(schema.text(delta.insert, attributesToMarks(attrs, schema)));
+                    }
+                    
+                    return nodes
+                }
+            }
+        }
+        
+        // Default behavior for normal cases
         for (let i = 0; i < deltas.length; i++) {
             const delta = deltas[i];
             const attrs = delta.attributes || {};
@@ -12583,10 +12709,10 @@ const nodes = {
   custom: {
     atom: true,
     group: 'block',
-    attrs: { checked: { default: false } },
+    attrs: { checked: { default: false }, ychange: { default: null } },
     parseDOM: [{ tag: 'div' }],
-    toDOM () {
-      return ['div']
+    toDOM (node) {
+      return ['div', calcYchangeDomAttrs(node.attrs)]
     }
   },
 
@@ -13326,6 +13452,111 @@ const testVersioningWithGarbageCollection = async (_tc) => {
   t__namespace.compare(viewstate1, expectedState);
 };
 
+/**
+ * Test that node attribute changes are detected as ychange (removed + added)
+ * Use case: A custom node has x, y attributes that change (e.g., draggable node moves)
+ */
+const testVersioningNodeAttributeChange = async (_tc) => {
+  const ydoc = new Doc({ gc: false });
+  const yxml = ydoc.get('prosemirror', YXmlFragment);
+  const permanentUserData = new PermanentUserData(ydoc);
+  permanentUserData.setUserMapping(ydoc, ydoc.clientID, 'me');
+  ydoc.gc = false;
+  const view = createNewComplexProsemirrorView(ydoc);
+
+  // Create a custom node with checked=false
+  const customEl = new YXmlElement('custom');
+  customEl.setAttribute('checked', false);
+  yxml.insert(0, [customEl]);
+
+  const snapshot1 = snapshot(ydoc);
+
+  // Change the attribute to checked=true
+  customEl.setAttribute('checked', true);
+
+  const snapshot2 = snapshot(ydoc);
+
+  view.dispatch(
+    view.state.tr.setMeta(ySyncPluginKey, { snapshot: snapshot2, prevSnapshot: snapshot1, permanentUserData })
+  );
+  await promise__namespace.wait(50);
+
+  console.log('node attribute change result: ', JSON.stringify(view.state.doc.toJSON()));
+
+  // Should have TWO custom nodes - one removed (old attrs) and one added (new attrs)
+  const docContent = JSON.parse(JSON.stringify(view.state.doc.toJSON().content));
+
+  // Find custom nodes in the content
+  const customNodes = docContent.filter(n => n.type === 'custom');
+
+  t__namespace.assert(customNodes.length === 2, 'should have 2 custom nodes (removed + added)');
+
+  // One should have ychange: removed with checked: false
+  const removedNode = customNodes.find(n => n.attrs.ychange && n.attrs.ychange.type === 'removed');
+  t__namespace.assert(removedNode !== undefined, 'should have a removed node');
+  t__namespace.assert(removedNode.attrs.checked === false, 'removed node should have checked=false');
+
+  // One should have ychange: added with checked: true
+  const addedNode = customNodes.find(n => n.attrs.ychange && n.attrs.ychange.type === 'added');
+  t__namespace.assert(addedNode !== undefined, 'should have an added node');
+  t__namespace.assert(addedNode.attrs.checked === true, 'added node should have checked=true');
+};
+
+/**
+ * Test that text formatting changes are detected as ychange (removed + added)
+ * Use case: User enters text, makes it bold, and compares snapshots
+ */
+const testVersioningTextFormattingChange = async (_tc) => {
+  const ydoc = new Doc({ gc: false });
+  const yxml = ydoc.get('prosemirror', YXmlFragment);
+  const permanentUserData = new PermanentUserData(ydoc);
+  permanentUserData.setUserMapping(ydoc, ydoc.clientID, 'me');
+  ydoc.gc = false;
+  const view = createNewComplexProsemirrorView(ydoc);
+
+  // Create a paragraph with plain text
+  const p = new YXmlElement('paragraph');
+  const ytext = new YXmlText('bb');
+  p.insert(0, [ytext]);
+  yxml.insert(0, [p]);
+
+  const snapshot1 = snapshot(ydoc);
+
+  // Apply bold formatting (strong mark)
+  ytext.format(0, 2, { strong: {} });
+
+  const snapshot2 = snapshot(ydoc);
+
+  view.dispatch(
+    view.state.tr.setMeta(ySyncPluginKey, { snapshot: snapshot2, prevSnapshot: snapshot1, permanentUserData })
+  );
+  await promise__namespace.wait(50);
+
+  console.log('text formatting change result: ', JSON.stringify(view.state.doc.toJSON()));
+
+  // Should have text nodes showing the formatting change
+  const paragraphContent = JSON.parse(JSON.stringify(view.state.doc.toJSON().content[0].content));
+
+  // Should have text with removed marker (no bold) and text with added marker (with bold)
+  const removedText = paragraphContent.find(n =>
+    n.marks && n.marks.some(m => m.type === 'ychange' && m.attrs.type === 'removed')
+  );
+  const addedText = paragraphContent.find(n =>
+    n.marks && n.marks.some(m => m.type === 'ychange' && m.attrs.type === 'added')
+  );
+
+  t__namespace.assert(removedText !== undefined, 'should have text with removed ychange marker');
+  t__namespace.assert(addedText !== undefined, 'should have text with added ychange marker');
+
+  // The removed version should NOT have the strong mark
+  const removedHasStrong = removedText.marks && removedText.marks.some(m => m.type === 'strong');
+  t__namespace.assert(!removedHasStrong, 'removed text should not have strong mark');
+
+  // The added version should have the strong mark
+  const addedHasStrong = addedText.marks && addedText.marks.some(m => m.type === 'strong');
+  t__namespace.assert(addedHasStrong, 'added text should have strong mark');
+};
+
 const testAddToHistoryIgnore = (_tc) => {
   const ydoc = new Doc();
   const view = createNewProsemirrorViewWithUndoManager(ydoc);
@@ -13701,6 +13932,8 @@ var prosemirror = /*#__PURE__*/Object.freeze({
   testInitialCursorPosition2: testInitialCursorPosition2,
   testVersioning: testVersioning,
   testVersioningWithGarbageCollection: testVersioningWithGarbageCollection,
+  testVersioningNodeAttributeChange: testVersioningNodeAttributeChange,
+  testVersioningTextFormattingChange: testVersioningTextFormattingChange,
   testAddToHistoryIgnore: testAddToHistoryIgnore,
   testRestoreSelectionForDeletedInlineNode: testRestoreSelectionForDeletedInlineNode,
   testRestoreSelectionForDeletedBlockNode: testRestoreSelectionForDeletedBlockNode,

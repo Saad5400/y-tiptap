@@ -22,10 +22,10 @@ export const nodes = {
   custom: {
     atom: true,
     group: 'block',
-    attrs: { checked: { default: false } },
+    attrs: { checked: { default: false }, ychange: { default: null } },
     parseDOM: [{ tag: 'div' }],
-    toDOM () {
-      return ['div']
+    toDOM (node) {
+      return ['div', calcYchangeDomAttrs(node.attrs)]
     }
   },
 

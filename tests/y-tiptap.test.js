@@ -530,6 +530,111 @@ export const testVersioningWithGarbageCollection = async (_tc) => {
   t.compare(viewstate1, expectedState)
 }
 
+/**
+ * Test that node attribute changes are detected as ychange (removed + added)
+ * Use case: A custom node has x, y attributes that change (e.g., draggable node moves)
+ */
+export const testVersioningNodeAttributeChange = async (_tc) => {
+  const ydoc = new Y.Doc({ gc: false })
+  const yxml = ydoc.get('prosemirror', Y.XmlFragment)
+  const permanentUserData = new Y.PermanentUserData(ydoc)
+  permanentUserData.setUserMapping(ydoc, ydoc.clientID, 'me')
+  ydoc.gc = false
+  const view = createNewComplexProsemirrorView(ydoc)
+
+  // Create a custom node with checked=false
+  const customEl = new Y.XmlElement('custom')
+  customEl.setAttribute('checked', false)
+  yxml.insert(0, [customEl])
+
+  const snapshot1 = Y.snapshot(ydoc)
+
+  // Change the attribute to checked=true
+  customEl.setAttribute('checked', true)
+
+  const snapshot2 = Y.snapshot(ydoc)
+
+  view.dispatch(
+    view.state.tr.setMeta(ySyncPluginKey, { snapshot: snapshot2, prevSnapshot: snapshot1, permanentUserData })
+  )
+  await promise.wait(50)
+
+  console.log('node attribute change result: ', JSON.stringify(view.state.doc.toJSON()))
+
+  // Should have TWO custom nodes - one removed (old attrs) and one added (new attrs)
+  const docContent = JSON.parse(JSON.stringify(view.state.doc.toJSON().content))
+
+  // Find custom nodes in the content
+  const customNodes = docContent.filter(n => n.type === 'custom')
+
+  t.assert(customNodes.length === 2, 'should have 2 custom nodes (removed + added)')
+
+  // One should have ychange: removed with checked: false
+  const removedNode = customNodes.find(n => n.attrs.ychange && n.attrs.ychange.type === 'removed')
+  t.assert(removedNode !== undefined, 'should have a removed node')
+  t.assert(removedNode.attrs.checked === false, 'removed node should have checked=false')
+
+  // One should have ychange: added with checked: true
+  const addedNode = customNodes.find(n => n.attrs.ychange && n.attrs.ychange.type === 'added')
+  t.assert(addedNode !== undefined, 'should have an added node')
+  t.assert(addedNode.attrs.checked === true, 'added node should have checked=true')
+}
+
+/**
+ * Test that text formatting changes are detected as ychange (removed + added)
+ * Use case: User enters text, makes it bold, and compares snapshots
+ */
+export const testVersioningTextFormattingChange = async (_tc) => {
+  const ydoc = new Y.Doc({ gc: false })
+  const yxml = ydoc.get('prosemirror', Y.XmlFragment)
+  const permanentUserData = new Y.PermanentUserData(ydoc)
+  permanentUserData.setUserMapping(ydoc, ydoc.clientID, 'me')
+  ydoc.gc = false
+  const view = createNewComplexProsemirrorView(ydoc)
+
+  // Create a paragraph with plain text
+  const p = new Y.XmlElement('paragraph')
+  const ytext = new Y.XmlText('bb')
+  p.insert(0, [ytext])
+  yxml.insert(0, [p])
+
+  const snapshot1 = Y.snapshot(ydoc)
+
+  // Apply bold formatting (strong mark)
+  ytext.format(0, 2, { strong: {} })
+
+  const snapshot2 = Y.snapshot(ydoc)
+
+  view.dispatch(
+    view.state.tr.setMeta(ySyncPluginKey, { snapshot: snapshot2, prevSnapshot: snapshot1, permanentUserData })
+  )
+  await promise.wait(50)
+
+  console.log('text formatting change result: ', JSON.stringify(view.state.doc.toJSON()))
+
+  // Should have text nodes showing the formatting change
+  const paragraphContent = JSON.parse(JSON.stringify(view.state.doc.toJSON().content[0].content))
+
+  // Should have text with removed marker (no bold) and text with added marker (with bold)
+  const removedText = paragraphContent.find(n =>
+    n.marks && n.marks.some(m => m.type === 'ychange' && m.attrs.type === 'removed')
+  )
+  const addedText = paragraphContent.find(n =>
+    n.marks && n.marks.some(m => m.type === 'ychange' && m.attrs.type === 'added')
+  )
+
+  t.assert(removedText !== undefined, 'should have text with removed ychange marker')
+  t.assert(addedText !== undefined, 'should have text with added ychange marker')
+
+  // The removed version should NOT have the strong mark
+  const removedHasStrong = removedText.marks && removedText.marks.some(m => m.type === 'strong')
+  t.assert(!removedHasStrong, 'removed text should not have strong mark')
+
+  // The added version should have the strong mark
+  const addedHasStrong = addedText.marks && addedText.marks.some(m => m.type === 'strong')
+  t.assert(addedHasStrong, 'added text should have strong mark')
+}
+
 export const testAddToHistoryIgnore = (_tc) => {
   const ydoc = new Y.Doc()
   const view = createNewProsemirrorViewWithUndoManager(ydoc)
